@@ -54,6 +54,22 @@ Testes e validação
 - Recomenda-se deixar `--update-os` desligado por padrão; documentar risco e permitir ligar explicitamente.
 - Instalações que requerem UI/aceitação de EULA devem ser explícitas e documentadas (modo `--yes` pode ignorar prompts quando aceitável).
 
+Estrutura de etapas
+- Etapa 1 — Base do script
+  - Implementar o CLI principal em Python.
+  - Detectar sistema operacional e gerenciadores de pacote.
+  - Ler configurações de repositórios e módulos.
+  - Clonar repositórios com autenticação por token pessoal via variável de ambiente.
+  - Instalar e validar ferramentas básicas do escopo inicial.
+- Etapa 2 — Melhorias e observabilidade
+  - Adicionar suporte a logs e telemetria básicos.
+  - Planejar suporte a containerização.
+  - Refinar validações e relatórios de execução.
+- Etapa 3 — Segurança e conformidade
+  - Definir políticas de licenças e uso de softwares proprietários.
+  - Revisar tratamento de permissões e compatibilidade.
+  - Expandir o escopo conforme necessário.
+
 Próximos artefatos a implementar
 - `maktrak_setup.py` (esqueleto CLI e detectores de SO).
 - `repos.yaml` e `modules.yaml` com exemplos mínimos.
