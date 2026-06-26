@@ -18,6 +18,7 @@ Design proposto (alto nível)
 1. Arquivos de configuração
    - `repos.yaml` — lista de repositórios a clonar (nome, URL, destino, branch/tag opcional).
    - `modules.yaml` — lista de módulos por categoria com meta: nome, package manager, comando de verificação, comando de instalação, pós-tarefas.
+   - O script deve suportar clonagem autenticada do GitHub usando token pessoal (PAT) definido em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
 2. Estrutura do script
    - `maktrak_setup.py` — CLI usando `argparse` com flags: `--repos-file`, `--modules-file`, `--update-os`, `--yes`, `--dry-run`, `--category` (filtrar categorias), `--test`.
    - Módulos internos: os_utils (detecção e wrappers de package managers), git_utils, installer (idempotência), tester (scripts de verificação), logger.
