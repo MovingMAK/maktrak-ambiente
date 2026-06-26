@@ -19,6 +19,7 @@ Design proposto (alto nível)
    - `repos.yaml` — lista de repositórios a clonar (nome, URL, destino, branch/tag opcional).
    - `modules.yaml` — lista de módulos por categoria com meta: nome, package manager, comando de verificação, comando de instalação, pós-tarefas.
    - O script deve suportar clonagem autenticada do GitHub usando token pessoal (PAT) definido em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
+   - Padrão de diretório para clonagem em Linux: `~/home/repos/maktrak/<nome-do-repo>`; no Windows deve ser equivalente à raiz de usuário apropriada.
 2. Estrutura do script
    - `maktrak_setup.py` — CLI usando `argparse` com flags: `--repos-file`, `--modules-file`, `--update-os`, `--yes`, `--dry-run`, `--category` (filtrar categorias), `--test`.
    - Módulos internos: os_utils (detecção e wrappers de package managers), git_utils, installer (idempotência), tester (scripts de verificação), logger.
@@ -38,6 +39,12 @@ Instalação de ferramentas específicas (exemplos)
 - Geral: `git` (sempre verificar/instalar).
 - Editores: `sublime-text`, `sublime-merge` — em Linux via `snap install` quando aplicável; no Windows via `winget`.
 - IDEs/SDKs: `vscode` (snap/winget), `arduino` (CLI/installers), `flutter` (extra steps para PATH e build targets), `freecad`, `kicad`.
+- Repositórios iniciais a clonar:
+  - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
+  - `servidores` — https://github.com/MovingMAK/maktrak-server.git
+  - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
+  - `firmware` — https://github.com/MovingMAK/maktrak-app.git
+  - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
 Testes e validação
 - Validar cada instalação sempre que possível.

@@ -2,11 +2,9 @@
 
 Antes de implementar o instalador, precisamos esclarecer os pontos abaixo para garantir que o script atenda às expectativas e seja seguro de usar.
 
-1. Repositórios
-- Qual é a lista completa de repositórios a clonar? Existe um repositório central com todos os URLs?
-- Deseja clonar tudo em um diretório padrão (ex.: `~/maktrak/src`) ou cada repositório em pastas específicas?
-
 2. Política de atualização do OS
+- Confirmar comportamento padrão: `--update-os` deve ser desligado por padrão (não atualizar).
+- Em caso afirmativo, quais comandos/gestores usar para cada sistema (`apt upgrade`, `winget upgrade all`, `choco upgrade all`)?
 - Confirmar comportamento padrão: `--update-os` deve ser desligado por padrão (não atualizar).
 - Em caso afirmativo, quais comandos/gestores usar para cada sistema (`apt upgrade`, `winget upgrade all`, `choco upgrade all`)?
 
