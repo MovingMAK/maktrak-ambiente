@@ -1,5 +1,7 @@
 # MakTrak — Plano de implementação do instalador
 
+## Introdução
+
 Resumo: documento curto descrevendo o objetivo, restrições e design proposto para um script Python multiplataforma que cria/configura ambientes de desenvolvimento e produção para o projeto MakTrak.
 
 Objetivos principais
@@ -14,63 +16,75 @@ Requisitos e restrições
 - O script deve pedir privilégios elevador quando necessário (administrador/sudo) e suportar um modo não-interativo (`--yes`).
 - Validar presença de dependências (ex.: `git`) e instalar apenas quando ausentes.
 
-Design proposto (alto nível)
-1. Arquivos de configuração
-   - `repos.yaml` — lista de repositórios a clonar (nome, URL, destino, branch/tag opcional).
-   - `modules.yaml` — lista de módulos por categoria com meta: nome, package manager, comando de verificação, comando de instalação, pós-tarefas.
-   - O script deve suportar clonagem autenticada do GitHub usando token pessoal (PAT) definido em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
-   - Padrão de diretório para clonagem em Linux: `~/home/repos/maktrak/<nome-do-repo>`; no Windows deve ser equivalente à raiz de usuário apropriada.
-2. Estrutura do script
-   - `maktrak_setup.py` — CLI usando `argparse` com flags: `--repos-file`, `--modules-file`, `--update-os`, `--yes`, `--dry-run`, `--category` (filtrar categorias), `--test`.
-   - Módulos internos: os_utils (detecção e wrappers de package managers), git_utils, installer (idempotência), tester (scripts de verificação), logger.
-3. Fluxo de execução
-   - Detectar SO e ambiente (WSL, headless, CI).
-   - Ler configuração de repositórios e clonar (com retry/logging).
+## Sequência de implementação
+
+1. Definir o escopo mínimo da instalação
+   - Priorizar uma instalação simples, direta e funcional, sem opções extras no início.
+   - Focar em um conjunto pequeno de ferramentas e repositórios essenciais para o projeto.
+   - Manter o fluxo previsível e fácil de manter.
+
+2. Projeto inicial e arquivos de configuração
+   - Definir `repos.yaml` como lista de repositórios a clonar: nome, URL, destino, branch/tag opcional.
+   - Definir `modules.yaml` como lista de módulos por categoria com metadados: nome, package manager, comando de verificação, comando de instalação, pós-tarefas.
+   - Padronizar diretório de clonagem:
+     - Linux: `~/home/repos/maktrak/<nome-do-repo>`
+     - Windows: equivalente à raiz de usuário apropriada.
+   - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
+
+3. Implementação inicial do script
+   - Criar `maktrak_setup.py` com um fluxo simples e direto, sem camada de opções complexa.
+   - Implementar a execução básica em passos claros: detectar ambiente, validar dependências, clonar repositórios, instalar ferramentas, validar resultado.
+   - Evitar abstrações e módulos extras no início; o objetivo é entregar um instalador funcional.
+
+4. Detecção de ambiente e inicialização
+   - Detectar sistema operacional e ambiente de execução (WSL, headless, CI).
+   - Identificar gerenciadores de pacote disponíveis (`snap`, `apt`, `winget`, `choco`, `pip`, etc.).
+   - Validar dependências básicas como `git` antes de iniciar o fluxo.
+
+5. Clonagem de repositórios
+   - Ler `repos.yaml` e clonar repositórios configurados.
+   - Aplicar retries e logging para falhas de rede ou autenticação.
+   - Garantir que o destino de clonagem respeite o padrão configurado.
+
+6. Instalação e validação de módulos
    - Para cada módulo habilitado:
-     - Verificar se já está instalado (comando de verificação configurável).
-     - Se ausente, executar instalador adequado (snap/apt/apt-get, winget/choco, executável .exe/.msi, pip, flutter sdk installer etc.).
-     - Executar verificações pós-instalação (ex.: `code --version`, `arduino-cli version`, `kicad --version`).
-   - Gerar relatório final com status (OK/failed/warnings) e códigos de saída.
-4. Testes automatizados
-   - Testes unitários simples para funções utilitárias (detecção SO, parsing YAML, verificação de instalação).
-   - Testes integrados opcionais que executam comandos de verificação no ambiente alvo (manual/automatizado).
+     - Verificar se já está instalado usando comando de verificação configurável.
+     - Se não estiver presente, executar instalador adequado:
+       - Linux: `snap`, `apt`, `apt-get`, `pip`, etc.
+       - Windows: `winget`, `choco`, instaladores `.exe`/`.msi`.
+       - SDKs/IDEs específicos: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
+     - Executar verificações pós-instalação (por exemplo, `code --version`, `arduino-cli version`, `kicad --version`).
+   - Gerar relatório final com status por módulo: `OK`, `failed`, `warnings`.
 
-Instalação de ferramentas específicas (exemplos)
-- Geral: `git` (sempre verificar/instalar).
-- Editores: `sublime-text`, `sublime-merge` — em Linux via `snap install` quando aplicável; no Windows via `winget`.
-- IDEs/SDKs: `vscode` (snap/winget), `arduino` (CLI/installers), `flutter` (extra steps para PATH e build targets), `freecad`, `kicad`.
-- Repositórios iniciais a clonar:
-  - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
-  - `servidores` — https://github.com/MovingMAK/maktrak-server.git
-  - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
-  - `firmware` — https://github.com/MovingMAK/maktrak-app.git
-  - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
+7. Exemplo de ferramentas e repositórios iniciais
+   - Geral: `git` (sempre verificar/instalar).
+   - Editores: `sublime-text`, `sublime-merge`.
+   - IDEs/SDKs: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
+   - Repositórios iniciais a clonar:
+     - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
+     - `servidores` — https://github.com/MovingMAK/maktrak-server.git
+     - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
+     - `firmware` — https://github.com/MovingMAK/maktrak-app.git
+     - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
-Testes e validação
-- Validar cada instalação sempre que possível.
-- Verificar ferramentas com comandos como `--version`, `--help` ou outras verificações apropriadas.
-- O plano detalhado de testes está descrito em [TESTING.md](TESTING.md).
-- Containers são relevantes, mas serão tratados em uma etapa posterior, não no escopo inicial.
-- Recomenda-se deixar `--update-os` desligado por padrão; documentar risco e permitir ligar explicitamente.
-- Instalações que requerem UI/aceitação de EULA devem ser explícitas e documentadas (modo `--yes` pode ignorar prompts quando aceitável).
+8. Testes e validação
+   - Validar cada instalação sempre que possível.
+   - Verificar ferramentas com comandos como `--version`, `--help` ou outras verificações apropriadas.
+   - Documentar o risco de `--update-os` e manter o padrão desligado.
+   - Tratar explicitamente instalações que requerem UI ou aceitação de EULA; `--yes` pode ignorar prompts quando aceitável.
+   - Referenciar o plano detalhado em [TESTING.md](TESTING.md).
 
-Estrutura de etapas
-- Etapa 1 — Base do script
-  - Implementar o CLI principal em Python.
-  - Detectar sistema operacional e gerenciadores de pacote.
-  - Ler configurações de repositórios e módulos.
-  - Clonar repositórios com autenticação por token pessoal via variável de ambiente.
-  - Instalar e validar ferramentas básicas do escopo inicial.
-- Etapa 2 — Melhorias e observabilidade
-  - Adicionar suporte a logs e telemetria básicos.
-  - Planejar suporte a containerização.
-  - Refinar validações e relatórios de execução.
-- Etapa 3 — Segurança e conformidade
-  - Definir políticas de licenças e uso de softwares proprietários.
-  - Revisar tratamento de permissões e compatibilidade.
-  - Expandir o escopo conforme necessário.
+9. Melhorias e observabilidade
+   - Adicionar suporte a logs e telemetria básicos.
+   - Refinar validações e relatórios de execução.
+   - Planejar suporte a containerização como etapa posterior.
 
-Próximos artefatos a implementar
+10. Segurança, licenças e compatibilidade
+   - Definir políticas de licença e uso de software proprietário.
+   - Revisar tratamento de permissões e compatibilidade entre Windows e Linux.
+   - Expandir o escopo conforme necessário.
+
+## Próximos artefatos a implementar
 - `maktrak_setup.py` (esqueleto CLI e detectores de SO).
 - `repos.yaml` e `modules.yaml` com exemplos mínimos.
 - `IMPLEMENTATION_QUESTIONS.md` com dúvidas a esclarecer antes da implementação.
