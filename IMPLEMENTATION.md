@@ -23,28 +23,25 @@ Requisitos e restrições
    - Focar em um conjunto pequeno de ferramentas e repositórios essenciais para o projeto.
    - Manter o fluxo previsível e fácil de manter.
 
-2. Projeto inicial e arquivos de configuração
-   - Definir `repos.yaml` como lista de repositórios a clonar: nome, URL, destino, branch/tag opcional.
-   - Definir `modules.yaml` como lista de módulos por categoria com metadados: nome, package manager, comando de verificação, comando de instalação, pós-tarefas.
-   - Padronizar diretório de clonagem:
-     - Linux: `~/home/repos/maktrak/<nome-do-repo>`
-     - Windows: equivalente à raiz de usuário apropriada.
-   - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
-
-3. Implementação inicial do script
+2. Implementação inicial do script
    - Criar `maktrak_setup.py` com um fluxo simples e direto, sem camada de opções complexa.
    - Implementar a execução básica em passos claros: detectar ambiente, validar dependências, clonar repositórios, instalar ferramentas, validar resultado.
    - Evitar abstrações e módulos extras no início; o objetivo é entregar um instalador funcional.
+   - Armazenar a lista de repositórios e definições de módulo dentro de `maktrak_setup.py`, sem depender de arquivos externos.
 
-4. Detecção de ambiente e inicialização
+3. Detecção de ambiente e inicialização
    - Detectar sistema operacional e ambiente de execução (WSL, headless, CI).
    - Identificar gerenciadores de pacote disponíveis (`snap`, `apt`, `winget`, `choco`, `pip`, etc.).
    - Validar dependências básicas como `git` antes de iniciar o fluxo.
 
-5. Clonagem de repositórios
-   - Ler `repos.yaml` e clonar repositórios configurados.
+4. Clonagem de repositórios
+   - Definir repositórios diretamente no script e clonar de acordo.
    - Aplicar retries e logging para falhas de rede ou autenticação.
    - Garantir que o destino de clonagem respeite o padrão configurado.
+   - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
+   - Padronizar diretório de clonagem:
+     - Linux: `~/home/repos/maktrak/<nome-do-repo>`
+     - Windows: equivalente à raiz de usuário apropriada.
 
 6. Instalação e validação de módulos
    - Para cada módulo habilitado:
