@@ -1,49 +1,41 @@
 # Perguntas e dúvidas para implementação do MakTrak setup
 
-Antes de implementar o instalador, precisamos esclarecer os pontos abaixo para garantir que o script atenda às expectativas e seja seguro de usar.
+Este documento lista apenas as questões ainda em aberto, depois das definições já incorporadas ao plano de implementação.
 
 1. Política de atualização do OS
-- Confirmar comportamento padrão: `--update-os` deve ser desligado por padrão (não atualizar).
-- Em caso afirmativo, quais comandos/gestores usar para cada sistema (`apt upgrade`, `winget upgrade all`, `choco upgrade all`)?
+- O comportamento padrão desejado é manter `--update-os` desligado para instalações gerais?
+- Para o modo `servidor-prod`, a atualização de OS deve ser obrigatória?
+- Quais comandos ou gestores de pacote devemos usar para atualizar o OS em cada plataforma?
 
-2. Gerentes de pacote
-- No Windows, prefere `winget` ou `choco` quando ambos existirem? Devo implementar detecção e fallback automático?
-- No Linux, usar `snap` quando disponível; para pacotes que não têm snap, usar `apt` ou PPAs?
+2. Escolha de modo e categorias
+- O script deve perguntar ao usuário se ele quer um ambiente `dev` ou `prod`?
+- No modo `dev`, o usuário deve poder escolher qualquer combinação de categorias, incluindo `todos`?
+- No modo `prod`, o usuário deve escolher entre `servidor-prod` e `IA interna`?
+- `servidor-dev` está claramente dentro do modo `dev` e deve ser mutuamente exclusivo com `servidor-prod` em cada execução?
 
-3. Permissões e UAC
-- O script deve pedir elevação automaticamente quando necessário, ou apenas instruir o usuário a executar com privilégios (
-  `sudo` / executar como Administrador)?
-- Em ambientes não-interativos, como CI, qual política deseja (falhar ou tentar sudo sem prompt)?
+3. IA interna e ambiente de serviço
+- O ambiente de IA deve ser exposto por uma porta externa TCP/UDP?
+- Qual tipo de servidor IA devemos usar inicialmente?
+- O teste básico de IA deve apenas validar uma resposta simples como "olá" -> "olá"?
 
-4. Interatividade e aceitação de termos
-- Modo `--yes` deve aceitar EULAs/termos automaticamente onde possível? Ou deve falhar quando uma EULA exigir aceitação manual?
+4. Permissões, EULAs e aceitação de termos
+- O modo `--yes` deve aceitar automaticamente EULAs/termos quando possível?
+- Devemos deixar instalações que exigem aceitação manual de EULAs para o último passo do fluxo?
 
-5. Ferramentas específicas
-- Confirmação de lista mínima por categoria (resuma/corrija):
-  - Mecânica: FreeCAD
-  - Eletrônica: KiCad
-  - Firmware: Arduino CLI, VS Code
-  - Servidor: VS Code, Flutter (configurar builds Windows/Linux), Web local
-  - Geral: git, Sublime Text, Sublime Merge, Markdown preview tool
-  - IA: (quais ferramentas/SDKs?)
+5. Testes automatizados
+- Devemos testar a instalação bem-sucedida de cada item?
+- Para software, devemos testar builds de projetos baixados, incluindo:
+  - firmware com compilador Arduino;
+  - app usando Flutter para plataforma nativa, web e e Android;
+  - servidores dev com build para saída web via Flutter;
+  - servidores prod com hospedagem de página e teste de acesso;
+  - IA interna com serviço TCP/UDP respondendo a um prompt simples.
+- Existem testes que devem ser opcionais por limitação de ambiente?
 
-6. Testes automatizados
-- Quais testes automatizados mínimos espera para cada ferramenta? Exemplos aceitáveis:
-  - Executar `--version`/`--help` e validar saída
-  - Compilar projeto de exemplo (quando disponível)
-- Aceita que alguns testes só sejam manuais por limitações do ambiente (ex.: validar GUI)?
-- As decisões e métodos de teste detalhados podem ser documentados em [TESTING.md](TESTING.md).
+6. Lista mínima de componentes
+- Há ferramentas ou SDKs adicionais obrigatórios para IA ou servidor-prod além do que já foi citado?
 
-7. Plataforma alvo e arquitetura
-- A prioridade inicial é suportar `x86_64`.
-- Além das versões de SO listadas, há alguma outra arquitetura relevante?
+7. Referências
+- Há mais recursos ou referências além do link fornecido ([https://share.google/aimode/jQQQFq4VttHpozdoF](https://share.google/aimode/jQQQFq4VttHpozdoF))?
 
-8. Cronograma e priorização
-- A prioridade é a lógica do próprio script.
-- Quais categorias são prioridade inicial (por exemplo: Geral + Firmware + Eletrônica)?
-
-9. Referências e links
-- Confirmar que o link literário fornecido ([https://share.google/aimode/jQQQFq4VttHpozdoF](https://share.google/aimode/jQQQFq4VttHpozdoF)) é o único recurso a consultar ou há mais.
-
-
-Por favor responda estas perguntas para que eu gere o esqueleto do script e os arquivos de configuração iniciais (`repos.yaml`, `modules.yaml`).
+Por favor responda somente as questões em aberto para que eu mantenha o documento enxuto e alinhado com o plano de implementação.
