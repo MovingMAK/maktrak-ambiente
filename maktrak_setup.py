@@ -241,6 +241,63 @@ def confirm_actions(mode, components, os_type, managers):
     return confirm in {"yes", ""}
 
 
+def get_clone_destination(repo_name):
+    """Return the standard clone destination path for a repo."""
+    base = Path.home() / "repos" / "maktrak" / repo_name
+    return base
+
+
+def clone_repository(repo_name, repo_url):
+    """Clone or update a repository at the standard destination."""
+    dest = get_clone_destination(repo_name)
+    if dest.exists():
+        print(f"Repository already exists: {dest}")
+        if (dest / ".git").exists():
+            print(f"Pulling latest changes in {repo_name}...")
+            result = subprocess.run(["git", "-C", str(dest), "pull"], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"✓ Updated {repo_name}")
+            else:
+                print(f"✗ Failed to update {repo_name}")
+                print(result.stderr)
+                return False
+            return True
+        else:
+            print(f"✗ {dest} exists but is not a git repository")
+            return False
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Cloning {repo_name} into {dest}...")
+        result = subprocess.run(["git", "clone", repo_url, str(dest)], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"✓ Cloned {repo_name}")
+            return True
+        else:
+            print(f"✗ Failed to clone {repo_name}")
+            print(result.stderr)
+            return False
+
+
+def clone_repositories(mode, components):
+    """Clone repositories required for the selected mode and components."""
+    print("\n[6/6] Cloning repositories...")
+    if mode == "dev":
+        repos = get_repositories_for_components(components)
+    else:
+        repos = sorted(PROD_MODULES.keys())
+    
+    success = True
+    for repo in repos:
+        repo_url = REPOSITORIES.get(repo)
+        if not repo_url:
+            print(f"✗ No URL configured for repository: {repo}")
+            success = False
+            continue
+        if not clone_repository(repo, repo_url):
+            success = False
+    return success
+
+
 # ============================================================================
 # Main Flow
 # ============================================================================
@@ -272,7 +329,7 @@ def main():
         sys.exit(1)
     
     # Step 4: Select mode and components
-    print("\n[4/5] User configuration...")
+    print("\n[4/6] User configuration...")
     mode = select_mode()
     
     if mode == "dev":
@@ -281,20 +338,23 @@ def main():
         components = select_prod_components()
     
     # Step 5: Confirm actions
-    print("\n[5/5] Confirmation...")
+    print("\n[5/6] Confirmation...")
     if not confirm_actions(mode, components, os_type, managers):
         print("Installation cancelled.")
         sys.exit(0)
+    
+    # Step 6: Clone repositories
+    if not clone_repositories(mode, components):
+        print("Some repositories failed to clone. Review the output and try again.")
+        sys.exit(1)
     
     print("\n" + "=" * 60)
     print("Ready to proceed with installation!")
     print("=" * 60)
     print("\nNext steps:")
     print("- Update environment (mandatory)")
-    print("- Clone repositories")
     print("- Install modules")
     print("- Validate installation")
-    print("\n[TODO] Implementation of remaining steps...")
 
 
 if __name__ == "__main__":
