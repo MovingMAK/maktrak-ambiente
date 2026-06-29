@@ -38,7 +38,7 @@ Requisitos e restrições
    - Validar dependências básicas como `git` antes de iniciar o fluxo.
    - Após a detecção e seleção de modo, executar a atualização de ambiente (mandatória) antes de prosseguir com instalações.
 
-3. Clonagem de repositórios
+4. Clonagem de repositórios
    - Preâmbulo (instalar): 
      - instalar `git` (sempre verificar/instalar) 
      - Editores: `sublime-text`, `sublime-merge`.
@@ -56,7 +56,7 @@ Requisitos e restrições
      - `firmware` — https://github.com/MovingMAK/maktrak-app.git
      - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
-4. Instalação e validação de módulos
+5. Instalação e validação de módulos
    - Para cada módulo habilitado:
      - Verificar se já está instalado usando comando de verificação configurável.
      - Se não estiver presente, executar instalador adequado:
