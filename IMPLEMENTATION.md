@@ -13,7 +13,7 @@ Objetivos principais
 Requisitos e restrições
 - Suportar Windows 10/11 e Xubuntu 24.04/26.04.
 - Instalações de GUI no Linux podem usar `snap` quando disponível; no Windows usar `winget`/`choco` se disponível, com fallback para instaladores oficiais.
-- O script deve pedir privilégios elevador quando necessário (administrador/sudo) e suportar um modo não-interativo (`--yes`).
+- O script deve pedir privilégios elevador quando necessário (administrador/sudo).
 - Validar presença de dependências (ex.: `git`) e instalar apenas quando ausentes.
 - `--update-os` deve ser opção explícita do usuário no início do script em contextos gerais, mas deve ser impositivo para criar um ambiente de servidor-prod.
 
@@ -21,29 +21,40 @@ Requisitos e restrições
 
 1. Implementação inicial do script
    - Criar `maktrak_setup.py` com um fluxo simples e direto, sem camada de opções complexa.
-   - Implementar a execução básica em passos claros: selecionar modo (dev ou prod), detectar ambiente, validar dependências, clonar repositórios, instalar ferramentas, validar resultado.
+   - Implementar a execução básica em passos claros: detectar ambiente, selecionar modo (dev ou prod), atualizar ambiente (mandatório), validar dependências, confirmar ações com o usuário, clonar repositórios, instalar ferramentas, validar resultado.
    - Evitar abstrações e módulos extras no início; o objetivo é entregar um instalador funcional.
    - Armazenar a lista de repositórios e definições de módulo dentro de `maktrak_setup.py`, sem depender de arquivos externos.
 
-2. Seleção de modo de execução
-   - Perguntar ao usuário se deseja criar um ambiente de `dev` ou `prod`.
-   - O modo `dev` deve permitir seleção livre de categorias e componentes de desenvolvimento, incluindo a opção `todos`.
-   - O modo `prod` deve permitir escolha livre entre `servidor-prod` e `IA interna`, incluindo 'todos'.
-   - Os contextos de `servidor-dev` e `servidor-prod` são mutuamente exclusivos em cada execução.
+2. Perguntas ao usuário:
+  - Seleção de modo de execução
+    - Perguntar ao usuário se deseja criar um ambiente de `dev` ou `prod`.
+    - O modo `dev` deve permitir seleção livre de categorias e componentes de desenvolvimento, incluindo a opção `todos`.
+    - O modo `prod` deve permitir escolha livre entre `servidor-prod` e `IA interna`, incluindo 'todos'.
+    - Os contextos de `servidor-dev` e `servidor-prod` são mutuamente exclusivos em cada execução.
 
 3. Detecção de ambiente e inicialização
    - Detectar sistema operacional e ambiente de execução (WSL, headless, CI).
    - Identificar gerenciadores de pacote disponíveis (`snap`, `apt`, `winget`, `choco`, `pip`, etc.).
    - Validar dependências básicas como `git` antes de iniciar o fluxo.
+   - Após a detecção e seleção de modo, executar a atualização de ambiente (mandatória) antes de prosseguir com instalações.
 
 3. Clonagem de repositórios
+   - Preâmbulo (instalar): 
+     - instalar `git` (sempre verificar/instalar) 
+     - Editores: `sublime-text`, `sublime-merge`.
    - Definir repositórios diretamente no script e clonar de acordo.
    - Aplicar retries e logging para falhas de rede ou autenticação.
-   - Garantir que o destino de clonagem respeite o padrão configurado.
    - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
-   - Padronizar diretório de clonagem:
+   - Diretório de clonagem:
      - Linux: `~/home/repos/maktrak/<nome-do-repo>`
      - Windows: equivalente à raiz de usuário apropriada.
+   - associar cada repositório ao sublime-merge (não sei como faz de forma eficiente).
+   - Repositórios a clonar:
+     - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
+     - `servidores` — https://github.com/MovingMAK/maktrak-server.git
+     - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
+     - `firmware` — https://github.com/MovingMAK/maktrak-app.git
+     - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
 4. Instalação e validação de módulos
    - Para cada módulo habilitado:
@@ -54,17 +65,6 @@ Requisitos e restrições
        - SDKs/IDEs específicos: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
      - Executar verificações pós-instalação (por exemplo, `code --version`, `arduino-cli version`, `kicad --version`).
    - Gerar relatório final com status por módulo: `OK`, `failed`, `warnings`.
-
-5. Exemplo de ferramentas e repositórios iniciais
-   - Geral: `git` (sempre verificar/instalar).
-   - Editores: `sublime-text`, `sublime-merge`.
-   - IDEs/SDKs: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
-   - Repositórios iniciais a clonar:
-     - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
-     - `servidores` — https://github.com/MovingMAK/maktrak-server.git
-     - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
-     - `firmware` — https://github.com/MovingMAK/maktrak-app.git
-     - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
 6. Testes e validação
    - Validar a instalação com sucesso de cada item instalado.
@@ -89,8 +89,7 @@ Requisitos e restrições
 8. Segurança, licenças, permissões e compatibilidade
    - Definir políticas de licença e uso de software proprietário.
    - Revisar tratamento de permissões e compatibilidade entre Windows e Linux.
-   - Colocar instalações que exigem aceitação de EULAs, termos ou permissões elevadas como último passo do fluxo.
-   - Documentar claramente quando `--yes` pode ser usado para ignorar prompts e quando a aceitação deve ser manual.
+   - Revisar, como último passo do desenvolvimento, itens relacionados a EULAs, termos e permissões, sem que isso impacte o escopo inicial.
    - Expandir o escopo conforme necessário.
 
 ## Próximos artefatos a implementar
