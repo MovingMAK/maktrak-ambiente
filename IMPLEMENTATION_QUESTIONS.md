@@ -17,3 +17,8 @@ Este documento lista apenas as questões ainda em aberto, depois das definiçõe
 4.1. Há mais recursos ou referências além do link fornecido ([https://share.google/aimode/jQQQFq4VttHpozdoF](https://share.google/aimode/jQQQFq4VttHpozdoF))?
 
 Por favor responda somente as questões em aberto para que eu mantenha o documento enxuto e alinhado com o plano de implementação.
+
+
+Rascunho:
+
+Vamos para o passo implementation 5. Reveja a tarefa e se precisar, faça perguntas adicionais.

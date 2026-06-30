@@ -7,6 +7,7 @@ Multiplataforma installer for MakTrak development and production environments.
 import sys
 import platform
 import subprocess
+import shutil
 import os
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -322,7 +323,32 @@ def get_clone_destination(repo_name):
     return base
 
 
-def clone_repository(repo_name, repo_url, credentials=None):
+def find_sublime_merge_executable():
+    """Return the Sublime Merge executable name or path if installed."""
+    candidates = ["smerge", "sublime-merge"]
+    if platform.system() == "Windows":
+        candidates = ["smerge.exe", "sublime-merge.exe", "smerge", "sublime-merge"]
+    for candidate in candidates:
+        path = shutil.which(candidate)
+        if path:
+            return path
+    return None
+
+
+def register_repo_with_sublime_merge(repo_path):
+    """Open or register a repository in Sublime Merge after cloning."""
+    exe = find_sublime_merge_executable()
+    if not exe:
+        return
+
+    result = subprocess.run([exe, str(repo_path)], capture_output=True, text=True)
+    if result.returncode == 0:
+        print(f"✓ Opened {repo_path.name} in Sublime Merge")
+    else:
+        print(f"⚠ Could not open {repo_path.name} in Sublime Merge (repo is cloned locally)")
+
+
+def clone_repository(repo_name, repo_url):
     """Clone or update a repository at the standard destination."""
     dest = get_clone_destination(repo_name)
     if dest.exists():
@@ -332,6 +358,7 @@ def clone_repository(repo_name, repo_url, credentials=None):
             result = subprocess.run(["git", "-C", str(dest), "pull"], capture_output=True, text=True)
             if result.returncode == 0:
                 print(f"✓ Updated {repo_name}")
+                register_repo_with_sublime_merge(dest)
             else:
                 print(f"✗ Failed to update {repo_name}")
                 print(result.stderr)
@@ -349,13 +376,14 @@ def clone_repository(repo_name, repo_url, credentials=None):
         )
         if result.returncode == 0:
             print(f"✓ Cloned {repo_name}")
+            register_repo_with_sublime_merge(dest)
             return True
         else:
             print(f"✗ Failed to clone {repo_name}")
             return False
 
 
-def clone_repositories(mode, components, credentials=None):
+def clone_repositories(mode, components):
     """Clone repositories required for the selected mode and components."""
     print("\n[6/6] Cloning repositories...")
     if mode == "dev":

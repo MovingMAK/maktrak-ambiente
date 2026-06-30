@@ -55,6 +55,7 @@ Requisitos e restrições
      - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
      - `firmware` — https://github.com/MovingMAK/maktrak-app.git
      - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
+   - depois de cada clone, associe o repositório ao sublime-merge.
 
 5. Instalação e validação de módulos
    - Para cada módulo habilitado:
