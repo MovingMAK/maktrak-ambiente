@@ -76,7 +76,9 @@ Requisitos e restrições
        - Android.
      - servidores dev devem compilar para saída web usando Flutter.
      - servidores prod devem ser capazes de hospedar uma página e testar acessos.
-     - IA interna deve subir um serviço TCP/UDP e responder a um prompt básico, por exemplo, "olá" com algo como "olá" ou outra resposta simples e previsível.
+     - IA interna deve ser exposta por uma porta externa TCP/UDP e subir um serviço que responda a um prompt determinístico e conciso, por exemplo:
+       - `Responda qual é o tipo em C para ponto flutuante de 64 bits. Responda exatamente apenas o tipo.`
+       - saída esperada: `double`
    - Verificar ferramentas com comandos como `--version`, `--help` ou outras verificações apropriadas quando aplicável.
    - Documentar o risco de `--update-os` e manter o padrão desligado fora do modo `servidor-prod`.
    - Referenciar o plano detalhado em [TESTING.md](TESTING.md).
