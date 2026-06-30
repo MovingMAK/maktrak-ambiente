@@ -9,6 +9,7 @@ import platform
 import subprocess
 import os
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 
 # ============================================================================
@@ -208,6 +209,80 @@ def get_repositories_for_components(components):
     return sorted(repos)
 
 
+def get_credential_store_path():
+    """Return the path of the Git credential store file."""
+    return Path.home() / ".git-credentials"
+
+
+def read_github_credentials_from_store(store_path=None):
+    """Read GitHub credentials from the Git credential store file if present."""
+    path = store_path or get_credential_store_path()
+    if not path.exists():
+        return None
+
+    try:
+        line = path.read_text(encoding="utf-8").strip().splitlines()[0]
+    except (OSError, IndexError):
+        return None
+
+    if not line.startswith("https://"):
+        return None
+
+    try:
+        auth_part = line.split("https://", 1)[1].split("@", 1)[0]
+    except IndexError:
+        return None
+
+    if ":" not in auth_part:
+        return None
+
+    username, token = auth_part.split(":", 1)
+    return unquote(username), unquote(token)
+
+
+def write_github_credentials_to_store(username, token, store_path=None):
+    """Persist GitHub credentials in a simple Git-compatible credential store file."""
+    path = store_path or get_credential_store_path()
+    encoded_username = quote(username)
+    encoded_token = quote(token)
+    path.write_text(f"https://{encoded_username}:{encoded_token}@github.com\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def configure_git_credential_helper():
+    """Configure Git to use the credential store for HTTPS authentication."""
+    result = subprocess.run(
+        ["git", "config", "--global", "credential.helper", "store"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("✓ Git credential helper configured for automatic HTTPS authentication")
+        return True
+    else:
+        print("✗ Failed to configure Git credential helper")
+        print(result.stderr)
+        return False
+
+
+def get_github_credentials(store_path=None):
+    """Collect GitHub credentials for private repository access or reuse stored credentials."""
+    existing = read_github_credentials_from_store(store_path)
+    if existing:
+        print("✓ Reusing saved GitHub credentials from the local credential store")
+        return existing
+
+    print("\n--- GitHub Authentication ---")
+    username = input("GitHub username: ").strip()
+    token = input("GitHub personal access token (hidden): ").strip()
+    if not username or not token:
+        print("✗ GitHub username and token are required for private repository access")
+        return None
+
+    write_github_credentials_to_store(username, token, store_path)
+    return username, token
+
+
 def confirm_actions(mode, components, os_type, managers):
     """Show user a summary of planned actions and request confirmation."""
     print("\n--- Installation Summary ---")
@@ -247,7 +322,7 @@ def get_clone_destination(repo_name):
     return base
 
 
-def clone_repository(repo_name, repo_url):
+def clone_repository(repo_name, repo_url, credentials=None):
     """Clone or update a repository at the standard destination."""
     dest = get_clone_destination(repo_name)
     if dest.exists():
@@ -268,17 +343,19 @@ def clone_repository(repo_name, repo_url):
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"Cloning {repo_name} into {dest}...")
-        result = subprocess.run(["git", "clone", repo_url, str(dest)], capture_output=True, text=True)
+        result = subprocess.run(
+            ["git", "clone", "--progress", repo_url, str(dest)],
+            text=True,
+        )
         if result.returncode == 0:
             print(f"✓ Cloned {repo_name}")
             return True
         else:
             print(f"✗ Failed to clone {repo_name}")
-            print(result.stderr)
             return False
 
 
-def clone_repositories(mode, components):
+def clone_repositories(mode, components, credentials=None):
     """Clone repositories required for the selected mode and components."""
     print("\n[6/6] Cloning repositories...")
     if mode == "dev":
@@ -343,7 +420,17 @@ def main():
         print("Installation cancelled.")
         sys.exit(0)
     
-    # Step 6: Clone repositories
+    # Step 6: Collect credentials and configure Git
+    credentials = None
+    if any(repo in REPOSITORIES for repo in get_repositories_for_components(components)) or mode != "dev":
+        credentials = get_github_credentials()
+        if credentials is None:
+            print("GitHub credentials are required for private repository access.")
+            sys.exit(1)
+        
+        if not configure_git_credential_helper():
+            print("Failed to configure Git credential helper. Continuing anyway...")
+    
     if not clone_repositories(mode, components):
         print("Some repositories failed to clone. Review the output and try again.")
         sys.exit(1)
