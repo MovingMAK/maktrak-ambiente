@@ -91,9 +91,6 @@ def detect_package_managers(os_type):
         # Check for winget
         if subprocess.run(["where", "winget"], capture_output=True).returncode == 0:
             managers["winget"] = True
-        # Check for choco
-        if subprocess.run(["where", "choco"], capture_output=True).returncode == 0:
-            managers["choco"] = True
         # Check for pip
         if subprocess.run(["where", "pip"], capture_output=True).returncode == 0:
             managers["pip"] = True
@@ -103,13 +100,61 @@ def detect_package_managers(os_type):
 
 def validate_git():
     """Validate that git is available."""
-    result = subprocess.run(["git", "--version"], capture_output=True)
-    if result.returncode == 0:
-        print(f"✓ Git found: {result.stdout.decode().strip()}")
-        return True
-    else:
-        print("✗ Git not found")
+    try:
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True)
+    except FileNotFoundError:
+        print("✗ Git not found in PATH")
+        if platform.system() == "Windows":
+            print("  Install hint: winget install --id Git.Git -e")
+        elif platform.system() == "Linux":
+            print("  Install hint: sudo apt install -y git")
         return False
+
+    if result.returncode == 0:
+        print(f"✓ Git found: {result.stdout.strip()}")
+        return True
+
+    print("✗ Git command failed")
+    if result.stderr:
+        print(result.stderr.strip())
+    return False
+
+
+def install_git(os_type):
+    """Try to install Git using a fixed package manager command per OS."""
+    print("Attempting to install Git...")
+
+    if os_type == "windows":
+        cmd = [
+            "winget",
+            "install",
+            "--id",
+            "Git.Git",
+            "-e",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ]
+
+    elif os_type == "linux":
+        cmd = ["sudo", "apt", "install", "-y", "git"]
+
+    else:
+        print(f"✗ Automatic Git installation not implemented for OS: {os_type}")
+        return False
+
+    try:
+        result = subprocess.run(cmd, text=True)
+    except Exception as exc:
+        print("✗ Failed to run Git installation command")
+        print(str(exc))
+        return False
+
+    if result.returncode == 0:
+        print("✓ Git installation command completed")
+        return True
+
+    print("✗ Failed to install Git automatically")
+    return False
 
 
 # ============================================================================
@@ -430,8 +475,12 @@ def main():
     # Step 3: Validate dependencies
     print("\n[3/5] Validating dependencies...")
     if not validate_git():
-        print("✗ Git is required but not found")
-        sys.exit(1)
+        if not install_git(os_type):
+            print("✗ Git is required but could not be installed")
+            sys.exit(1)
+        if not validate_git():
+            print("✗ Git is required but not available after installation attempt")
+            sys.exit(1)
     
     # Step 4: Select mode and components
     print("\n[4/6] User configuration...")
