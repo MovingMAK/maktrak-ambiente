@@ -2,8 +2,6 @@
 
 ## Introdução
 
-Resumo: documento curto descrevendo o objetivo, restrições e design proposto para um script Python multiplataforma que cria/configura ambientes de desenvolvimento e produção para o projeto MakTrak.
-
 Objetivos principais
 - Fornecer um script Python executável em Windows e Linux para instalar/configurar ferramentas por categoria (mecânica, eletrônica, firmware, servidor, IA, etc.).
 - Ser idempotente e verificável (testes/validações após instalação).
@@ -67,7 +65,17 @@ Requisitos e restrições
      - Executar verificações pós-instalação (por exemplo, `code --version`, `arduino-cli version`, `kicad --version`).
    - Gerar relatório final com status por módulo: `OK`, `failed`, `warnings`.
 
-6. Testes e validação
+6. Extras:
+  - Em caso de Windows, programe o atalho ctrl+alt+t para abrir o powershell.
+  - Caso tiver vscode instalado
+    - configure o seguinte:
+      - menu "open recent" aumentar para 20
+    - instale as seguintes extensões:
+      - github
+      - aquele pra ver .md
+      - o que precisa pra arduino
+
+7. Testes e validação
    - Validar a instalação com sucesso de cada item instalado.
    - Para softwares, testar builds de projetos já baixados nos repositórios:
      - firmware usando compilador Arduino.
@@ -84,12 +92,12 @@ Requisitos e restrições
    - Documentar o risco de `--update-os` e manter o padrão desligado fora do modo `servidor-prod`.
    - Referenciar o plano detalhado em [TESTING.md](TESTING.md).
 
-7. Melhorias e observabilidade
+8. Melhorias e observabilidade
    - Adicionar suporte a logs e telemetria básicos.
    - Refinar validações e relatórios de execução.
    - Planejar suporte a containerização como etapa posterior.
 
-8. Segurança, licenças, permissões e compatibilidade
+9. Segurança, licenças, permissões e compatibilidade
    - Definir políticas de licença e uso de software proprietário.
    - Revisar tratamento de permissões e compatibilidade entre Windows e Linux.
    - Revisar, como último passo do desenvolvimento, itens relacionados a EULAs, termos e permissões, sem que isso impacte o escopo inicial.

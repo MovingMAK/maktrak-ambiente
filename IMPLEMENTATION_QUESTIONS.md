@@ -21,4 +21,6 @@ Por favor responda somente as questões em aberto para que eu mantenha o documen
 
 Rascunho:
 
+precisa já começar como administrador, no windows tb
+
 Vamos para o passo implementation 5. Reveja a tarefa e se precisar, faça perguntas adicionais.

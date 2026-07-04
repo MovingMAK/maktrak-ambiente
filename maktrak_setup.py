@@ -9,6 +9,7 @@ import platform
 import subprocess
 import shutil
 import os
+import ctypes
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -120,9 +121,90 @@ def validate_git():
     return False
 
 
+def relaunch_windows_as_admin():
+    """Relaunch the current script with UAC elevation on Windows."""
+    script_path = os.path.abspath(sys.argv[0])
+    params = subprocess.list2cmdline([script_path, *sys.argv[1:]])
+    rc = ctypes.windll.shell32.ShellExecuteW(
+        None,
+        "runas",
+        sys.executable,
+        params,
+        None,
+        1,
+    )
+    return rc > 32
+
+
+def ensure_admin_privileges(os_type):
+    """Require administrator/sudo privileges at the beginning of execution."""
+    if os_type == "windows":
+        try:
+            is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            is_admin = False
+        if not is_admin:
+            print("Administrator privileges are required. Requesting elevation...")
+            if relaunch_windows_as_admin():
+                print("✓ Elevation request sent. Continuing in elevated window.")
+                return "relaunch"
+            print("✗ Could not request elevation. Please run PowerShell as Administrator.")
+            return False
+        return True
+
+    if os_type == "linux":
+        result = subprocess.run(["sudo", "-v"], text=True)
+        if result.returncode != 0:
+            print("✗ Sudo privileges are required.")
+            print("  Please run with a user that can use sudo and try again.")
+            return False
+        return True
+
+    return True
+
+
+def refresh_windows_path_from_system():
+    """Refresh current process PATH from system/user values after installations."""
+    if platform.system() != "Windows":
+        return
+
+    command = (
+        "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
+        "[System.Environment]::GetEnvironmentVariable('Path','User')"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        os.environ["PATH"] = result.stdout.strip()
+        print("✓ PATH refreshed in current process")
+
+
+def run_install_command(cmd, os_type, package_name):
+    """Run an install command and apply post-install actions."""
+    print(f"Attempting to install {package_name}...")
+    try:
+        result = subprocess.run(cmd, text=True)
+    except Exception as exc:
+        print(f"✗ Failed to run {package_name} installation command")
+        print(str(exc))
+        return False
+
+    if result.returncode != 0:
+        print(f"✗ Failed to install {package_name} automatically")
+        return False
+
+    if os_type == "windows":
+        refresh_windows_path_from_system()
+
+    print(f"✓ {package_name} installation command completed")
+    return True
+
+
 def install_git(os_type):
     """Try to install Git using a fixed package manager command per OS."""
-    print("Attempting to install Git...")
 
     if os_type == "windows":
         cmd = [
@@ -142,19 +224,7 @@ def install_git(os_type):
         print(f"✗ Automatic Git installation not implemented for OS: {os_type}")
         return False
 
-    try:
-        result = subprocess.run(cmd, text=True)
-    except Exception as exc:
-        print("✗ Failed to run Git installation command")
-        print(str(exc))
-        return False
-
-    if result.returncode == 0:
-        print("✓ Git installation command completed")
-        return True
-
-    print("✗ Failed to install Git automatically")
-    return False
+    return run_install_command(cmd, os_type, "Git")
 
 
 # ============================================================================
@@ -462,6 +532,14 @@ def main():
     print("\n[1/5] Detecting operating system...")
     os_type = detect_os()
     print(f"✓ OS detected: {os_type}")
+
+    # Step 1.5: Require administrator/sudo privileges
+    print("\n[1.5/5] Checking privileges...")
+    privilege_state = ensure_admin_privileges(os_type)
+    if privilege_state == "relaunch":
+        sys.exit(0)
+    if not privilege_state:
+        sys.exit(1)
     
     # Step 2: Detect package managers
     print("\n[2/5] Detecting package managers...")
