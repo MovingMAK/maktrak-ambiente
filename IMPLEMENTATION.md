@@ -58,9 +58,10 @@ Requisitos e restrições
 5. Instalação e validação de módulos
    - Para cada módulo habilitado:
      - Verificar se já está instalado usando comando de verificação configurável.
+     - Política atual: instalar todos os programas em todos os OS por padrão; exceções serão definidas posteriormente.
      - Se não estiver presente, executar instalador adequado:
        - Linux: `snap`, `apt`, `apt-get`, `pip`, etc.
-       - Windows: `winget`, `choco`, instaladores `.exe`/`.msi`.
+       - Windows: `winget` (com fallback futuro somente se necessário).
        - SDKs/IDEs específicos: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
      - Executar verificações pós-instalação (por exemplo, `code --version`, `arduino-cli version`, `kicad --version`).
    - Gerar relatório final com status por módulo: `OK`, `failed`, `warnings`.

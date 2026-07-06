@@ -16,19 +16,18 @@ O script:
 1. Instalar Python 3 via `winget`:
 
 ```powershell
-winget install --id Python.Python.3 -e
+winget install python3 --silent --accept-source-agreements --accept-package-agreements
 ```
 
-Reinicie automaticamente o terminal para atualizar o PATH:
-
+2. Atualizar path de instalação:
 ```powershell
-Start-Process powershell -ArgumentList "-NoExit","-Command","Set-Location '$PWD'"; exit
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 ```
 
-2. Baixar e executar o script (linha única):
+3. Baixar e executar o script (linha única):
 
 ```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/docs-de-implementacao/maktrak_setup.py" -OutFile "$env:TEMP\maktrak_setup.py"; python "$env:TEMP\maktrak_setup.py"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/docs-de-implementacao/maktrak_setup.py" -OutFile "$env:TEMP\maktrak_setup.py"; py "$env:TEMP\maktrak_setup.py"
 ```
 
 ## Linux (Debian/Ubuntu/Xubuntu)

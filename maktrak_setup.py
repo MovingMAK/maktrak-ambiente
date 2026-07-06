@@ -122,13 +122,15 @@ def validate_git():
 
 
 def relaunch_windows_as_admin():
-    """Relaunch the current script with UAC elevation on Windows."""
+    """Relaunch the current script with UAC elevation on Windows and keep shell open."""
     script_path = os.path.abspath(sys.argv[0])
-    params = subprocess.list2cmdline([script_path, *sys.argv[1:]])
+    script_and_args = subprocess.list2cmdline([script_path, *sys.argv[1:]])
+    command = f'& "{sys.executable}" {script_and_args}'
+    params = subprocess.list2cmdline(["-NoExit", "-Command", command])
     rc = ctypes.windll.shell32.ShellExecuteW(
         None,
         "runas",
-        sys.executable,
+        "powershell.exe",
         params,
         None,
         1,
@@ -227,6 +229,27 @@ def install_git(os_type):
     return run_install_command(cmd, os_type, "Git")
 
 
+def install_sublime_merge(os_type):
+    """Try to install Sublime Merge with a fixed package manager command per OS."""
+    if os_type == "windows":
+        cmd = [
+            "winget",
+            "install",
+            "--id",
+            "SublimeHQ.SublimeMerge",
+            "-e",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ]
+    elif os_type == "linux":
+        cmd = ["sudo", "snap", "install", "sublime-merge", "--classic"]
+    else:
+        print(f"✗ Automatic Sublime Merge installation not implemented for OS: {os_type}")
+        return False
+
+    return run_install_command(cmd, os_type, "Sublime Merge")
+
+
 # ============================================================================
 # User Interaction
 # ============================================================================
@@ -306,14 +329,16 @@ def select_prod_components():
 
 
 def get_software_for_components(components, mode):
-    """Return the software packages associated with the selected components."""
+    """Return software packages to install.
+
+    Current policy: install all known software in all OSes by default.
+    Exceptions can be added later.
+    """
     software = set()
-    if mode == "dev":
-        for component in components:
-            software.update(DEV_MODULES.get(component, []))
-    else:
-        for component in components:
-            software.update(PROD_MODULES.get(component, []))
+    for values in DEV_MODULES.values():
+        software.update(values)
+    for values in PROD_MODULES.values():
+        software.update(values)
     return sorted(software)
 
 
@@ -409,6 +434,7 @@ def confirm_actions(mode, components, os_type, managers):
     for component in components:
         print(f"  - {component}")
     software = get_software_for_components(components, mode)
+    print("Software policy: install all programs on all OSes (exceptions defined later).")
     print("Software to install:")
     if software:
         for item in software:
@@ -442,11 +468,23 @@ def find_sublime_merge_executable():
     """Return the Sublime Merge executable name or path if installed."""
     candidates = ["smerge", "sublime-merge"]
     if platform.system() == "Windows":
-        candidates = ["smerge.exe", "sublime-merge.exe", "smerge", "sublime-merge"]
+        candidates = [
+            "smerge.exe",
+            "sublime-merge.exe",
+            "smerge",
+            "sublime-merge",
+            r"C:\Program Files\Sublime Merge\smerge.exe",
+            r"C:\Program Files (x86)\Sublime Merge\smerge.exe",
+        ]
     for candidate in candidates:
+        if os.path.isabs(candidate) and os.path.exists(candidate):
+            print(f"✓ Sublime Merge detected at: {candidate}")
+            return candidate
         path = shutil.which(candidate)
         if path:
+            print(f"✓ Sublime Merge detected at: {path}")
             return path
+    print("⚠ Sublime Merge executable not found in PATH or default locations")
     return None
 
 
@@ -456,10 +494,11 @@ def register_repo_with_sublime_merge(repo_path):
     if not exe:
         return
 
-    result = subprocess.run([exe, str(repo_path)], capture_output=True, text=True)
-    if result.returncode == 0:
+    try:
+        print(f"Launching Sublime Merge: {exe} {repo_path}")
+        subprocess.Popen([exe, str(repo_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"✓ Opened {repo_path.name} in Sublime Merge")
-    else:
+    except Exception:
         print(f"⚠ Could not open {repo_path.name} in Sublime Merge (repo is cloned locally)")
 
 
@@ -559,6 +598,12 @@ def main():
         if not validate_git():
             print("✗ Git is required but not available after installation attempt")
             sys.exit(1)
+
+    # Step 3.5: Ensure Sublime Merge is installed
+    print("\n[3.5/5] Checking Sublime Merge...")
+    if not find_sublime_merge_executable():
+        if not install_sublime_merge(os_type):
+            print("⚠ Could not install Sublime Merge automatically. Continuing without it.")
     
     # Step 4: Select mode and components
     print("\n[4/6] User configuration...")
