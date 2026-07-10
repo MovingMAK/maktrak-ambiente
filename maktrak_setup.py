@@ -13,6 +13,9 @@ import time
 import ctypes
 from pathlib import Path
 from urllib.parse import quote, unquote
+import urllib.request
+import zipfile
+import json
 
 
 # ============================================================================
@@ -90,9 +93,6 @@ def detect_package_managers(os_type):
         # Check for apt
         if subprocess.run(["which", "apt"], capture_output=True).returncode == 0:
             managers["apt"] = True
-        # Check for apt-get
-        if subprocess.run(["which", "apt-get"], capture_output=True).returncode == 0:
-            managers["apt-get"] = True
         # Check for pip
         if subprocess.run(["which", "pip"], capture_output=True).returncode == 0:
             managers["pip"] = True
@@ -338,16 +338,14 @@ def select_prod_components():
 
 
 def get_software_for_components(components, mode):
-    """Return software packages to install.
-
-    Current policy: install all known software in all OSes by default.
-    Exceptions can be added later.
-    """
+    """Return software packages needed for the selected components only."""
     software = set()
-    for values in DEV_MODULES.values():
-        software.update(values)
-    for values in PROD_MODULES.values():
-        software.update(values)
+    if mode == "dev":
+        for component in components:
+            software.update(DEV_MODULES.get(component, []))
+    elif mode == "prod":
+        for component in components:
+            software.update(PROD_MODULES.get(component, []))
     return sorted(software)
 
 
@@ -461,13 +459,20 @@ def confirm_actions(mode, components, os_type, managers):
     for component in components:
         print(f"  - {component}")
     software = get_software_for_components(components, mode)
-    print("Software policy: install all programs on all OSes (exceptions defined later).")
     print("Software to install:")
     if software:
         for item in software:
             print(f"  - {item}")
     else:
         print("  - none")
+
+    # Extensões do VS Code
+    if "vscode" in software:
+        vscode_exts = _get_vscode_extensions(components)
+        if vscode_exts:
+            print("VS Code extensions to install:")
+            for ext in vscode_exts:
+                print(f"  - {ext}")
     
     repos = get_repositories_to_clone(mode, components)
     if repos:
@@ -542,8 +547,6 @@ RETRY_DELAY_SECONDS = 3
 
 def _run_git_with_retry(args, repo_name, operation_label):
     """Run a git command with exponential backoff retry."""
-    import time as _time
-
     for attempt in range(1, MAX_RETRIES + 1):
         result = subprocess.run(args, capture_output=True, text=True)
         if result.returncode == 0:
@@ -563,7 +566,7 @@ def _run_git_with_retry(args, repo_name, operation_label):
                   f" — retrying in {delay}s...")
             if is_auth_error:
                 print(f"    Possible authentication issue. Check your GitHub token.")
-            _time.sleep(delay)
+            time.sleep(delay)
         else:
             break
 
@@ -635,16 +638,434 @@ def clone_repositories(mode, components):
         return True
 
     print(f"\nDownloading {len(repos)} repositories...")
-    success = True
     for repo in repos:
         repo_url = REPOSITORIES.get(repo)
         if not repo_url:
             print(f"✗ No URL configured for repository: {repo}")
-            success = False
-            continue
+            return False
         if not clone_repository(repo, repo_url):
-            success = False
-    return success
+            return False
+    return True
+
+
+# ============================================================================
+# Software Installation
+# ============================================================================
+
+# Installers: maps software name -> (verify_cmd, linux_install_cmd, windows_install_cmd)
+# verify_cmd: list of args; returns 0 if already installed
+# install_cmd: list of args to install
+SOFTWARE_INSTALLERS = {
+    "vscode": {
+        "verify": ["code", "--version"],
+        "linux": ["sudo", "snap", "install", "code", "--classic"],
+        "windows": ["winget", "install", "--id", "Microsoft.VisualStudioCode",
+                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
+    },
+    "flutter": {
+        "verify": ["flutter", "--version"],
+        "linux": ["sudo", "snap", "install", "flutter", "--classic"],
+        "windows": ["winget", "install", "--id", "Flutter.Flutter",
+                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
+    },
+    "arduino-cli": {
+        "verify": ["arduino-cli", "version"],
+        "linux": ["sudo", "snap", "install", "arduino-cli"],
+        "windows": ["winget", "install", "--id", "Arduino.ArduinoCLI",
+                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
+    },
+    "freecad": {
+        "verify": ["freecad", "--version"],
+        "linux": ["sudo", "snap", "install", "freecad"],
+        "windows": ["winget", "install", "--id", "FreeCAD.FreeCAD",
+                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
+    },
+    "kicad": {
+        "verify": None,  # checked via shutil.which to avoid launching GUI
+        "linux": ["sudo", "snap", "install", "kicad"],
+        "windows": ["winget", "install", "--id", "KiCad.KiCad",
+                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
+    },
+}
+
+
+def is_software_installed(software_name):
+    """Check if a software is already installed using its verify command."""
+    entry = SOFTWARE_INSTALLERS.get(software_name)
+    if not entry:
+        return None  # unknown software
+
+    cmd = entry.get("verify")
+    if cmd is None:
+        # No safe CLI check — fall back to checking if binary exists in PATH
+        return shutil.which(software_name) is not None
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def install_single_software(software_name, os_type):
+    """Install a single software package using the appropriate command for the OS."""
+    entry = SOFTWARE_INSTALLERS.get(software_name)
+    if not entry:
+        print(f"  ⚠ Unknown software: {software_name}")
+        return False
+
+    print(f"  ── {software_name} ──")
+
+    installed = is_software_installed(software_name)
+    if installed is None:
+        print(f"       No verifier available, attempting install...")
+    elif installed:
+        print(f"       ✓ Already installed")
+        return True
+
+    if os_type == "linux":
+        cmd = entry.get("linux")
+    elif os_type == "windows":
+        cmd = entry.get("windows")
+    else:
+        print(f"       ✗ No installer for {os_type}")
+        return False
+
+    if not cmd:
+        print(f"       ✗ No installer configured")
+        return False
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"       ✗ Failed")
+        if result.stderr:
+            for line in result.stderr.strip().splitlines()[:5]:
+                print(f"         {line}")
+        return False
+
+    if os_type == "windows":
+        refresh_windows_path_from_system()
+
+    print(f"       ✓ Installed")
+    return True
+
+
+def _get_vscode_extensions(components):
+    """Return the list of VS Code extension IDs based on selected components."""
+    exts = [
+        "GitHub.vscode-pull-request-github",
+        "yzhang.markdown-all-in-one",
+        "zaaack.markdown-editor",
+        "ms-python.python",
+    ]
+    if "app" in components or "servidor" in components:
+        exts.extend(["dart-code.dart-code", "dart-code.flutter"])
+    if "firmware" in components:
+        exts.append("platformio.platformio-ide")
+    return exts
+
+
+def setup_vscode(components):
+    """Configure VS Code: install extensions per component and adjust settings."""
+    print("  Configuring VS Code...")
+    extensions = _get_vscode_extensions(components)
+
+    for ext in extensions:
+        result = subprocess.run(
+            ["code", "--install-extension", ext, "--force"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"       ✓ Extension installed: {ext}")
+        else:
+            print(f"       ⚠ Extension failed: {ext}")
+
+    # Increase "Open Recent" list to 20 items
+    settings_path = Path.home() / ".config" / "Code" / "User" / "settings.json"
+    try:
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+        else:
+            settings = {}
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings["workbench.editor.limit.value"] = 20
+        settings_path.write_text(json.dumps(settings, indent=4))
+        print("       ✓ Open Recent increased to 20")
+    except Exception:
+        print("       ⚠ Could not update settings.json")
+
+
+def setup_flutter_platforms(os_type):
+    """Configure Flutter for all target platforms (web, linux/windows, android)."""
+    print("  Configuring Flutter platforms...")
+
+    # Enable web platform
+    subprocess.run(["flutter", "config", "--enable-web"], capture_output=True, text=True)
+
+    # Enable desktop platform
+    if platform.system() == "Linux":
+        subprocess.run(["flutter", "config", "--enable-linux-desktop"], capture_output=True, text=True)
+        # Install mesa-utils for eglinfo driver info
+        subprocess.run(["sudo", "apt", "install", "-y", "mesa-utils"], text=True,
+                       capture_output=True)
+    elif platform.system() == "Windows":
+        subprocess.run(["flutter", "config", "--enable-windows-desktop"], capture_output=True, text=True)
+
+    # Install Chromium so flutter devices shows web device
+    if os_type == "linux":
+        has_browser = (
+            shutil.which("chromium") or
+            shutil.which("chromium-browser") or
+            shutil.which("google-chrome")
+        )
+        if not has_browser:
+            print("  Installing Chromium for Flutter web...")
+            subprocess.run(["sudo", "snap", "install", "chromium"], text=True)
+
+        # Flutter expects google-chrome; snap installs chromium at /snap/bin/chromium
+        if not shutil.which("google-chrome") and shutil.which("chromium"):
+            print("  Creating google-chrome symlink for Flutter...")
+            subprocess.run(["sudo", "ln", "-sf", "/snap/bin/chromium",
+                            "/usr/local/bin/google-chrome"], text=True)
+
+    print("  Pre-caching Flutter artifacts for all platforms...")
+    result = subprocess.run(["flutter", "precache"], text=True)
+    if result.returncode == 0:
+        print("  ✓ Flutter artifacts cached")
+    else:
+        print("  ⚠ Flutter precache had warnings, continuing...")
+
+
+def setup_android_sdk():
+    """Install Android SDK, accept licenses, create AVDs."""
+    # 1. Install JDK
+    print("  Installing JDK for Android development...")
+    if platform.system() == "Linux":
+        subprocess.run(["sudo", "apt", "install", "-y", "default-jdk-headless"], text=True)
+    elif platform.system() == "Windows":
+        subprocess.run(["winget", "install", "--id", "Microsoft.OpenJDK.17",
+                         "-e", "--accept-package-agreements"], text=True)
+
+    # 2. Set up KVM on Linux
+    if platform.system() == "Linux":
+        print("  Setting up KVM for Android emulator acceleration...")
+        subprocess.run(["sudo", "apt", "install", "-y",
+                        "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
+                        "bridge-utils", "virt-manager"], text=True)
+        subprocess.run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"],
+                       capture_output=True, text=True)
+        if os.path.exists("/dev/kvm"):
+            print("  ✓ KVM available")
+        else:
+            print("  ⚠ /dev/kvm not found — emulators will run without acceleration (slow)")
+
+    # 3. Accept Android licenses via Flutter
+    print("  Accepting Android SDK licenses...")
+    result = subprocess.run(["flutter", "doctor", "--android-licenses"],
+                            input="y\n" * 10, text=True, capture_output=True)
+    if result.returncode == 0:
+        print("  ✓ Android licenses accepted")
+    else:
+        print("  ⚠ Android license acceptance had issues, continuing...")
+
+    # 4. Get Android SDK location from flutter doctor
+    sdk_root = _get_android_sdk_path()
+    if not sdk_root:
+        print("  ✗ Could not locate Android SDK")
+        return False
+
+    # 5. Install cmdline-tools and platform tools via sdkmanager
+    sdkmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "sdkmanager")
+    if not os.path.exists(sdkmanager):
+        print("  Installing Android SDK cmdline-tools...")
+        _install_cmdline_tools(sdk_root)
+
+    if not os.access(sdkmanager, os.X_OK):
+        if os.path.exists(sdkmanager):
+            print("  Fixing sdkmanager permissions...")
+            os.chmod(sdkmanager, 0o755)
+            # Also fix avdmanager and other binaries in the same dir
+            bin_dir = os.path.dirname(sdkmanager)
+            for f in os.listdir(bin_dir):
+                fp = os.path.join(bin_dir, f)
+                if os.path.isfile(fp):
+                    os.chmod(fp, 0o755)
+        else:
+            print("  ✗ sdkmanager not found after install attempt, skipping Android setup")
+            return False
+
+    print("  Installing Android platform tools and build tools...")
+    result = subprocess.run([sdkmanager, "--install",
+                             "platform-tools",
+                             "build-tools;36.0.0",
+                             "platforms;android-36",
+                             "platforms;android-34",
+                             "emulator"],
+                            text=True)
+    if result.returncode != 0:
+        print("  ⚠ sdkmanager install had issues, continuing...")
+
+    # 6. Create AVDs
+    _create_avd(sdk_root, "pixel_9", "android-36",
+                "Pixel_9_API_36", "Most recent API")
+    _create_avd(sdk_root, "pixel_8", "android-34",
+                "Pixel_8_API_34", "Most used API (Android 14)")
+
+    return True
+
+
+def _get_android_sdk_path():
+    """Return the Android SDK root path."""
+    # Check common locations
+    candidates = [
+        os.environ.get("ANDROID_HOME"),
+        os.environ.get("ANDROID_SDK_ROOT"),
+        str(Path.home() / "Android" / "Sdk"),
+        str(Path.home() / "android" / "sdk"),
+    ]
+    # Try to get from flutter doctor output
+    try:
+        result = subprocess.run(
+            ["flutter", "doctor", "-v"],
+            capture_output=True, text=True,
+        )
+        for line in result.stdout.splitlines():
+            if "Android SDK" in line:
+                path = line.split("at")[-1].strip()
+                if os.path.isdir(path):
+                    return path
+    except Exception:
+        pass
+
+    for c in candidates:
+        if c and os.path.isdir(c):
+            return c
+    return candidates[2] if candidates[2] else str(Path.home() / "Android" / "Sdk")
+
+
+def _install_cmdline_tools(sdk_root):
+    """Download and install Android SDK command-line tools."""
+    tools_dir = Path(sdk_root) / "cmdline-tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+
+    url = ("https://dl.google.com/android/repository/"
+           "commandlinetools-linux-11076708_latest.zip")
+    if platform.system() == "Windows":
+        url = ("https://dl.google.com/android/repository/"
+               "commandlinetools-win-11076708_latest.zip")
+
+    zip_path = tools_dir / "cmdline-tools.zip"
+    print(f"  Downloading Android cmdline-tools...")
+    try:
+        urllib.request.urlretrieve(url, zip_path)
+    except Exception as exc:
+        print(f"  ✗ Failed to download: {exc}")
+        return
+
+    print(f"  Extracting...")
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(tools_dir)
+    zip_path.unlink()
+
+    # Move to latest/ subdirectory as sdkmanager expects
+    (tools_dir / "latest").mkdir(exist_ok=True)
+    for item in (tools_dir / "cmdline-tools").iterdir():
+        if item.name != "latest":
+            shutil.move(str(item), str(tools_dir / "latest" / item.name))
+    (tools_dir / "cmdline-tools").rmdir()
+
+    # Fix permissions — extracted files lack execute bit
+    bin_dir = tools_dir / "latest" / "bin"
+    if bin_dir.exists():
+        for f in bin_dir.iterdir():
+            f.chmod(f.stat().st_mode | 0o111)
+
+
+def _create_avd(sdk_root, device, target, name, description):
+    """Create an Android Virtual Device."""
+    avdmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "avdmanager")
+    if not os.path.exists(avdmanager):
+        print(f"  ⚠ avdmanager not found, skipping AVD {name}")
+        return
+
+    # Check if AVD already exists
+    result = subprocess.run([avdmanager, "list", "avd", "-c"],
+                            capture_output=True, text=True)
+    if name in result.stdout:
+        print(f"  ✓ AVD {name} already exists")
+        return
+
+    print(f"  Creating AVD {name} ({description})...")
+    subprocess.run([
+        avdmanager, "create", "avd",
+        "--force",
+        "--device", device,
+        "--name", name,
+        "--package", f"system-images;{target};google_apis;x86_64",
+        "--tag", "google_apis",
+    ], text=True, capture_output=True)
+
+
+def install_modules(os_type, components, mode):
+    """Install software modules for the selected components.
+
+    Returns a dict with status per module.
+    """
+    software_list = get_software_for_components(components, mode)
+    if not software_list:
+        print("  No software modules to install.")
+        return {}
+
+    print(f"\nInstalling {len(software_list)} software modules...")
+    results = {}
+    needs_flutter_setup = False
+    needs_android = False
+
+    for sw in software_list:
+        if not install_single_software(sw, os_type):
+            print(f"  ✗ Aborting — {sw} failed to install")
+            return None
+        results[sw] = "OK"
+        if sw == "flutter":
+            needs_flutter_setup = True
+            if "app" in components or "servidor" in components:
+                needs_android = True
+
+    # Post-install: VS Code extensions and settings
+    if results.get("vscode") == "OK":
+        setup_vscode(components)
+
+    # Post-install: Flutter platform configuration
+    if needs_flutter_setup:
+        setup_flutter_platforms(os_type)
+
+    # Post-install: Android SDK + AVDs (only if app component is selected)
+    if needs_android:
+        print("  Setting up Android SDK and emulators...")
+        if not setup_android_sdk():
+            print("  ✗ Aborting — Android SDK setup failed")
+            return None
+
+    return results
+
+
+def print_installation_report(results):
+    """Print a formatted report of installation results."""
+    if results is None:
+        return
+    if not results:
+        return
+    print("\n--- Installation Report ---")
+    all_ok = True
+    for sw, status in sorted(results.items()):
+        icon = "✓" if status == "OK" else "✗"
+        print(f"  {icon} {sw}: {status}")
+        if status != "OK":
+            all_ok = False
+    if all_ok:
+        print("\n✓ All modules installed successfully!")
+    else:
+        print("\n⚠ Some modules failed. Review the output above.")
 
 
 # ============================================================================
@@ -709,12 +1130,12 @@ def main():
     print("=" * 60)
     
     # Step 1: Detect OS
-    print("\n[1/7] Detecting operating system...")
+    print("\n[1/8] Detecting operating system...")
     os_type = detect_os()
     print(f"✓ OS detected: {os_type}")
 
     # Step 1b: Require administrator/sudo privileges
-    print("\n[1b/7] Checking privileges...")
+    print("\n[1b/8] Checking privileges...")
     privilege_state = ensure_admin_privileges(os_type)
     if privilege_state == "relaunch":
         sys.exit(0)
@@ -722,7 +1143,7 @@ def main():
         sys.exit(1)
     
     # Step 2: Detect package managers
-    print("\n[2/7] Detecting package managers...")
+    print("\n[2/8] Detecting package managers...")
     managers = detect_package_managers(os_type)
     if managers:
         print(f"✓ Package managers found: {', '.join(managers.keys())}")
@@ -731,7 +1152,7 @@ def main():
         sys.exit(1)
     
     # Step 3: Install version control tools (git + Sublime Merge)
-    print("\n[3/7] Installing version control tools...")
+    print("\n[3/8] Installing version control tools...")
     if not validate_git():
         if not install_git(os_type):
             print("✗ Git is required but could not be installed")
@@ -746,7 +1167,7 @@ def main():
             print("  ⚠ Could not install Sublime Merge automatically. Continuing without it.")
     
     # Step 4: Select mode and components
-    print("\n[4/7] User configuration...")
+    print("\n[4/8] User configuration...")
     mode = select_mode()
     
     if mode == "dev":
@@ -755,21 +1176,20 @@ def main():
         components = select_prod_components()
     
     # Step 5: Update environment
-    print("\n[5/7] Updating environment...")
+    print("\n[5/8] Updating environment...")
     update_environment(os_type, managers)
     
     # Step 6: Confirm actions
-    print("\n[6/7] Confirmation...")
+    print("\n[6/8] Confirmation...")
     if not confirm_actions(mode, components, os_type, managers):
         print("Installation cancelled.")
         sys.exit(0)
     
     # Step 7: Download repositories (clone/update)
-    print("\n[7/7] Downloading repositories...")
+    print("\n[7/8] Downloading repositories...")
     
     repos_to_clone = get_repositories_to_clone(mode, components)
     if repos_to_clone:
-        # Collect GitHub credentials only if there are repos to clone
         credentials = get_github_credentials()
         if credentials is None:
             print("GitHub credentials are required for private repository access.")
@@ -782,12 +1202,19 @@ def main():
         print("Some repositories failed to download. Review the output and try again.")
         sys.exit(1)
     
+    # Step 8: Install software modules
+    print("\n[8/8] Installing software modules...")
+    results = install_modules(os_type, components, mode)
+    if results is None:
+        sys.exit(1)
+    print_installation_report(results)
+    
     print("\n" + "=" * 60)
-    print("✓ All repositories downloaded successfully!")
+    print("✓ MakTrak Setup completed successfully!")
     print("=" * 60)
     print("\nNext steps:")
-    print("- Install modules")
-    print("- Validate installation")
+    print("- Validate installation (run validation commands)")
+    print("- Start developing!")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ Objetivos principais
 - Clonar um conjunto configurável de repositórios antes das instalações.
 
 Requisitos e restrições
-- Suportar Windows 10/11 e Xubuntu 24.04/26.04.
+- Suportar Windows 10/11 e Xubuntu 26.04.
 - Instalações de GUI no Linux podem usar `snap` quando disponível; no Windows usar `winget`/`choco` se disponível, com fallback para instaladores oficiais.
 - Atualizar o sistema operacional (`apt update && apt upgrade -y` / `winget upgrade --all`) sempre que executado, sem flags CLI.
 - O script deve pedir privilégios elevados quando necessário (administrador/sudo).
@@ -60,14 +60,31 @@ Requisitos e restrições
      - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
 
 5. Instalação e validação de módulos
-   - Para cada módulo habilitado:
+   - Para cada módulo habilitado (apenas o dos componentes selecionados):
      - Verificar se já está instalado usando comando de verificação configurável.
-     - Política atual: instalar todos os programas em todos os OS por padrão; exceções serão definidas posteriormente.
-     - Se não estiver presente, executar instalador adequado:
-       - Linux: `snap`, `apt`, `apt-get`, `pip`, etc.
-       - Windows: `winget` (com fallback futuro somente se necessário).
-       - SDKs/IDEs específicos: `vscode`, `arduino`, `flutter`, `freecad`, `kicad`.
-     - Executar verificações pós-instalação (por exemplo, `code --version`, `arduino-cli version`, `kicad --version`).
+     - Se não estiver presente, executar instalador adequado.
+     - Executar verificações pós-instalação.
+   - Linux: instalação via `snap` preferencialmente; `apt` como fallback.
+   - Windows: instalação via `winget`.
+   - Programas individuais:
+     - **vscode**: `snap install code --classic` (Linux) / `winget install Microsoft.VisualStudioCode` (Windows)
+     - **arduino-cli**: `snap install arduino-cli` (Linux) / `winget install Arduino.ArduinoCLI` (Windows)
+     - **freecad**: `snap install freecad` (Linux) / `winget install FreeCAD.FreeCAD` (Windows)
+     - **kicad**: `snap install kicad` (Linux) / `winget install KiCad.KiCad` (Windows)
+     - **flutter**: `snap install flutter --classic` (Linux) / `winget install Flutter.Flutter` (Windows)
+       - Após instalar, executar `flutter config --enable-web --enable-linux-desktop` (linux) ou `--enable-windows-desktop` (windows)
+       - Executar `flutter precache` para baixar cache de todas as plataformas
+     - **Android SDK + AVDs** (quando app estiver entre os componentes selecionados):
+       - Instalar JDK: `sudo apt install -y default-jdk-headless` (Linux) / winget (Windows)
+       - Verificar/disponibilizar KVM no Linux:
+         - `sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils virt-manager`
+         - `sudo adduser $USER kvm` (exige logout/login p/ efetivar)
+         - Verificar `/dev/kvm` e `kvm-ok`
+       - `flutter doctor --android-licenses` (aceitar licenças Android)
+       - Instalar Android SDK cmdline-tools via `sdkmanager`
+       - Criar 2 AVDs via `avdmanager`:
+         - Um com a API level mais recente estável
+         - Um com a API level mais usada no mundo (ex.: API 34 / Android 14)
    - Gerar relatório final com status por módulo: `OK`, `failed`, `warnings`.
 
 6. Extras:
@@ -76,20 +93,24 @@ Requisitos e restrições
     - configure o seguinte:
       - menu "open recent" aumentar para 20
     - instale as seguintes extensões:
-      - github
-      - aquele pra ver .md
-      - o que precisa pra arduino
+      - `GitHub.vscode-pull-request-github` — GitHub Pull Requests (todos)
+      - `yzhang.markdown-all-in-one` — Markdown All in One (todos)
+      - `zaaack.markdown-editor` — Markdown Editor (todos)
+      - `ms-python.python` — Python (todos)
+      - `dart-code.dart-code` — Dart (app, servidor)
+      - `dart-code.flutter` — Flutter com debug (app, servidor)
+      - `platformio.platformio-ide` — PlatformIO IDE (apenas firmware)
 
 7. Testes e validação
    - Validar a instalação com sucesso de cada item instalado.
    - Para softwares, testar builds de projetos já baixados nos repositórios:
      - firmware usando compilador Arduino.
      - app usando Flutter para:
-       - plataforma nativa (`Windows` ou `Linux`),
+       - plataforma nativa (`Linux` ou `Windows`),
        - web,
        - Android.
-     - servidores dev devem compilar para saída web usando Flutter.
-     - servidores prod devem ser capazes de hospedar uma página e testar acessos.
+     - servidor-web (categoria `servidor` em dev) deve compilar para saída web usando Flutter.
+     - servidor-prod deve ser capaz de hospedar uma página e testar acessos HTTP.
      - IA interna deve ser exposta por uma porta externa TCP/UDP e subir um serviço que responda a um prompt determinístico e conciso, por exemplo:
        - `Responda qual é o tipo em C para ponto flutuante de 64 bits. Responda exatamente apenas o tipo.`
        - saída esperada: `double`
