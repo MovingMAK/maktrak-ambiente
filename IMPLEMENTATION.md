@@ -5,15 +5,16 @@
 Objetivos principais
 - Fornecer um script Python executável em Windows e Linux para instalar/configurar ferramentas por categoria (mecânica, eletrônica, firmware, servidor, IA, etc.).
 - Ser idempotente e verificável (testes/validações após instalação).
-- Permitir controlar se o script atualiza o sistema operacional (flag `--update-os`, padrão: desligado).
+- Atualizar o sistema operacional (`apt upgrade` / `winget upgrade`) sempre que executado.
 - Clonar um conjunto configurável de repositórios antes das instalações.
 
 Requisitos e restrições
 - Suportar Windows 10/11 e Xubuntu 24.04/26.04.
 - Instalações de GUI no Linux podem usar `snap` quando disponível; no Windows usar `winget`/`choco` se disponível, com fallback para instaladores oficiais.
-- O script deve pedir privilégios elevador quando necessário (administrador/sudo).
+- Atualizar o sistema operacional (`apt update && apt upgrade -y` / `winget upgrade --all`) sempre que executado, sem flags CLI.
+- O script deve pedir privilégios elevados quando necessário (administrador/sudo).
 - Validar presença de dependências (ex.: `git`) e instalar apenas quando ausentes.
-- `--update-os` deve ser opção explícita do usuário no início do script em contextos gerais, mas deve ser impositivo para criar um ambiente de servidor-prod.
+- Argumentos via CLI (`--update-os`, etc.) serão implementados apenas nas etapas finais, se necessário.
 
 ## Sequência de implementação
 
@@ -45,8 +46,8 @@ Requisitos e restrições
    - Aplicar retries e logging para falhas de rede ou autenticação.
    - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
    - Diretório de clonagem:
-     - Linux: `~/repos/maktrak/<nome-do-repo>`
-     - Windows: equivalente à raiz de usuário apropriauda.
+     - Linux: `~/repos/movingmak/maktrak/<nome-do-repo>`
+     - Windows: `%USERPROFILE%\repos\movingmak\maktrak\<nome-do-repo>`
    - Associar cada repositório ao Sublime Merge:
      - Após clonar, executar `sublime-merge --background <caminho-do-repo>` (ou `smerge.exe --background` no Windows) para abrir o repositório sem trazer a janela para o foco.
      - Isso evita múltiplos popups durante o setup.

@@ -22,6 +22,9 @@ from urllib.parse import quote, unquote
 # Base directory for all cloned repositories
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 
+# Always update OS packages (apt upgrade / winget upgrade)
+UPDATE_OS = True
+
 REPOSITORIES = {
     "ambiente": "https://github.com/MovingMAK/maktrak-ambiente.git",
     "servidores": "https://github.com/MovingMAK/maktrak-server.git",
@@ -453,6 +456,7 @@ def confirm_actions(mode, components, os_type, managers):
     print(f"Mode: {mode}")
     print(f"OS: {os_type}")
     print(f"Package managers available: {', '.join(managers.keys())}")
+    print(f"Update OS packages: {'yes' if UPDATE_OS else 'no'}")
     print("Components to install:")
     for component in components:
         print(f"  - {component}")
@@ -644,6 +648,57 @@ def clone_repositories(mode, components):
 
 
 # ============================================================================
+# Environment Update
+# ============================================================================
+
+def update_environment(os_type, managers):
+    """Update package lists (mandatory) and upgrade packages.
+
+    Linux:   sudo apt update && sudo apt upgrade -y
+    Windows: winget upgrade --all
+    """
+    if os_type == "linux" and "apt" in managers:
+        print("  Updating package lists (sudo apt update)...")
+        result = subprocess.run(["sudo", "apt", "update"], text=True)
+        if result.returncode == 0:
+            print("  ✓ Package lists updated")
+        else:
+            print("  ⚠ Package lists update returned warnings, continuing...")
+
+        print("  Upgrading system packages (sudo apt upgrade -y)...")
+        result = subprocess.run(["sudo", "apt", "upgrade", "-y"], text=True)
+        if result.returncode == 0:
+            print("  ✓ System packages upgraded")
+        else:
+            print("  ⚠ System upgrade had issues, continuing...")
+
+    elif os_type == "windows":
+        print("  Updating package lists (winget upgrade)...")
+        result = subprocess.run(
+            ["winget", "upgrade"],
+            text=True,
+        )
+        if result.returncode == 0:
+            print("  ✓ Package lists updated")
+        else:
+            print("  ⚠ Package lists update had issues, continuing...")
+
+        print("  Upgrading all packages...")
+        result = subprocess.run(
+            ["winget", "upgrade", "--all", "--accept-package-agreements",
+             "--accept-source-agreements"],
+            text=True,
+        )
+        if result.returncode == 0:
+            print("  ✓ Packages upgraded")
+        else:
+            print("  ⚠ Upgrade had issues, continuing...")
+    else:
+        print("  ⚠ No supported package manager found for automatic updates")
+        print("  (continuing without updates)")
+
+
+# ============================================================================
 # Main Flow
 # ============================================================================
 
@@ -654,12 +709,12 @@ def main():
     print("=" * 60)
     
     # Step 1: Detect OS
-    print("\n[1/6] Detecting operating system...")
+    print("\n[1/7] Detecting operating system...")
     os_type = detect_os()
     print(f"✓ OS detected: {os_type}")
 
     # Step 1b: Require administrator/sudo privileges
-    print("\n[1b/6] Checking privileges...")
+    print("\n[1b/7] Checking privileges...")
     privilege_state = ensure_admin_privileges(os_type)
     if privilege_state == "relaunch":
         sys.exit(0)
@@ -667,7 +722,7 @@ def main():
         sys.exit(1)
     
     # Step 2: Detect package managers
-    print("\n[2/6] Detecting package managers...")
+    print("\n[2/7] Detecting package managers...")
     managers = detect_package_managers(os_type)
     if managers:
         print(f"✓ Package managers found: {', '.join(managers.keys())}")
@@ -676,7 +731,7 @@ def main():
         sys.exit(1)
     
     # Step 3: Install version control tools (git + Sublime Merge)
-    print("\n[3/6] Installing version control tools...")
+    print("\n[3/7] Installing version control tools...")
     if not validate_git():
         if not install_git(os_type):
             print("✗ Git is required but could not be installed")
@@ -691,7 +746,7 @@ def main():
             print("  ⚠ Could not install Sublime Merge automatically. Continuing without it.")
     
     # Step 4: Select mode and components
-    print("\n[4/6] User configuration...")
+    print("\n[4/7] User configuration...")
     mode = select_mode()
     
     if mode == "dev":
@@ -699,14 +754,18 @@ def main():
     else:
         components = select_prod_components()
     
-    # Step 5: Confirm actions
-    print("\n[5/6] Confirmation...")
+    # Step 5: Update environment
+    print("\n[5/7] Updating environment...")
+    update_environment(os_type, managers)
+    
+    # Step 6: Confirm actions
+    print("\n[6/7] Confirmation...")
     if not confirm_actions(mode, components, os_type, managers):
         print("Installation cancelled.")
         sys.exit(0)
     
-    # Step 6: Download repositories (clone/update)
-    print("\n[6/6] Downloading repositories...")
+    # Step 7: Download repositories (clone/update)
+    print("\n[7/7] Downloading repositories...")
     
     repos_to_clone = get_repositories_to_clone(mode, components)
     if repos_to_clone:
@@ -727,7 +786,6 @@ def main():
     print("✓ All repositories downloaded successfully!")
     print("=" * 60)
     print("\nNext steps:")
-    print("- Update environment (mandatory)")
     print("- Install modules")
     print("- Validate installation")
 
