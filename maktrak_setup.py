@@ -9,6 +9,7 @@ import platform
 import subprocess
 import shutil
 import os
+import time
 import ctypes
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -17,6 +18,9 @@ from urllib.parse import quote, unquote
 # ============================================================================
 # CONFIGURATION: Repositories and Modules
 # ============================================================================
+
+# Base directory for all cloned repositories
+MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 
 REPOSITORIES = {
     "ambiente": "https://github.com/MovingMAK/maktrak-ambiente.git",
@@ -29,6 +33,7 @@ REPOSITORIES = {
 
 # Modules organized by category for dev mode
 DEV_MODULES = {
+    "ambiente": ["vscode"],
     "mecanica": ["freecad"],
     "eletronica": ["kicad"],
     "firmware": ["arduino-cli", "vscode"],
@@ -38,6 +43,7 @@ DEV_MODULES = {
 
 # Repository mapping for dev categories
 DEV_REPOSITORIES = {
+    "ambiente": ["ambiente"],
     "mecanica": ["hardware"],
     "eletronica": ["hardware"],
     "firmware": ["firmware"],
@@ -407,13 +413,30 @@ def configure_git_credential_helper():
 
 
 def get_github_credentials(store_path=None):
-    """Collect GitHub credentials for private repository access or reuse stored credentials."""
+    """Collect GitHub credentials for private repository access or reuse stored credentials.
+
+    Priority:
+    1. Saved credential store file (.git-credentials)
+    2. GITHUB_TOKEN or GH_TOKEN environment variable
+    3. Interactive prompt
+    """
+    # Priority 1: check credential store
     existing = read_github_credentials_from_store(store_path)
     if existing:
         print("✓ Reusing saved GitHub credentials from the local credential store")
         return existing
 
+    # Priority 2: check environment variables
+    env_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    env_username = os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER") or "git"
+    if env_token:
+        print("✓ Using GitHub token from environment variable")
+        write_github_credentials_to_store(env_username, env_token, store_path)
+        return env_username, env_token
+
+    # Priority 3: interactive prompt
     print("\n--- GitHub Authentication ---")
+    print("  Tip: Set GITHUB_TOKEN or GH_TOKEN environment variable to skip this prompt.")
     username = input("GitHub username: ").strip()
     token = input("GitHub personal access token (hidden): ").strip()
     if not username or not token:
@@ -441,27 +464,30 @@ def confirm_actions(mode, components, os_type, managers):
             print(f"  - {item}")
     else:
         print("  - none")
-    if mode == "dev":
-        repos = get_repositories_for_components(components)
-    else:
-        repos = sorted(PROD_MODULES.keys())
     
-    print("Repositories to clone:")
-    for repo in repos:
-        repo_path = REPOSITORIES.get(repo, "")
-        if repo_path:
-            print(f"  - {repo}: {repo_path}")
-        else:
-            print(f"  - {repo}")
+    repos = get_repositories_to_clone(mode, components)
+    if repos:
+        print(f"Repositories to clone (into {MOVINGMAK_REPOS_BASE}):")
+        for repo in repos:
+            repo_url = REPOSITORIES.get(repo, "")
+            if repo_url:
+                print(f"  - {repo}: {repo_url}")
+            else:
+                print(f"  - {repo}")
+    else:
+        print("No repositories to clone for the selected configuration.")
     
     confirm = input("\nProceed with these actions? (YES/no): ").strip().lower()
     return confirm in {"yes", ""}
 
 
 def get_clone_destination(repo_name):
-    """Return the standard clone destination path for a repo."""
-    base = Path.home() / "repos" / "maktrak" / repo_name
-    return base
+    """Return the standard clone destination path for a repo.
+
+    Linux:   ~/repos/movingmak/maktrak/<repo-name>
+    Windows: %USERPROFILE%\\repos\\movingmak\\maktrak\\<repo-name>
+    """
+    return MOVINGMAK_REPOS_BASE / repo_name
 
 
 def find_sublime_merge_executable():
@@ -489,33 +515,76 @@ def find_sublime_merge_executable():
 
 
 def register_repo_with_sublime_merge(repo_path):
-    """Open or register a repository in Sublime Merge after cloning."""
+    """Open a repository in Sublime Merge (background) after cloning, so it appears in the sidebar."""
     exe = find_sublime_merge_executable()
     if not exe:
         return
 
     try:
-        print(f"Launching Sublime Merge: {exe} {repo_path}")
-        subprocess.Popen([exe, str(repo_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"✓ Opened {repo_path.name} in Sublime Merge")
+        print(f"  Opening {repo_path.name} in Sublime Merge (background)...")
+        subprocess.Popen(
+            [exe, "--background", str(repo_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"  ✓ {repo_path.name} registered in Sublime Merge")
     except Exception:
-        print(f"⚠ Could not open {repo_path.name} in Sublime Merge (repo is cloned locally)")
+        print(f"  ⚠ Could not open {repo_path.name} in Sublime Merge (repo is cloned locally)")
+
+
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 3
+
+
+def _run_git_with_retry(args, repo_name, operation_label):
+    """Run a git command with exponential backoff retry."""
+    import time as _time
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result
+
+        is_auth_error = "403" in result.stderr or "Authentication failed" in result.stderr
+        is_network_error = (
+            "Could not resolve host" in result.stderr
+            or "Connection refused" in result.stderr
+            or "Connection timed out" in result.stderr
+            or "failed" in result.stderr.lower()
+        )
+
+        if attempt < MAX_RETRIES and (is_auth_error or is_network_error):
+            delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+            print(f"  ⚠ {operation_label} failed (attempt {attempt}/{MAX_RETRIES})"
+                  f" — retrying in {delay}s...")
+            if is_auth_error:
+                print(f"    Possible authentication issue. Check your GitHub token.")
+            _time.sleep(delay)
+        else:
+            break
+
+    return result
 
 
 def clone_repository(repo_name, repo_url):
-    """Clone or update a repository at the standard destination."""
+    """Clone or update a repository at the standard destination with retry support."""
     dest = get_clone_destination(repo_name)
     if dest.exists():
         print(f"Repository already exists: {dest}")
         if (dest / ".git").exists():
             print(f"Pulling latest changes in {repo_name}...")
-            result = subprocess.run(["git", "-C", str(dest), "pull"], capture_output=True, text=True)
+            result = _run_git_with_retry(
+                ["git", "-C", str(dest), "pull"],
+                repo_name,
+                f"git pull {repo_name}",
+            )
             if result.returncode == 0:
                 print(f"✓ Updated {repo_name}")
                 register_repo_with_sublime_merge(dest)
             else:
                 print(f"✗ Failed to update {repo_name}")
-                print(result.stderr)
+                if result.stderr:
+                    print(f"  {result.stderr.strip()}")
                 return False
             return True
         else:
@@ -524,9 +593,10 @@ def clone_repository(repo_name, repo_url):
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"Cloning {repo_name} into {dest}...")
-        result = subprocess.run(
+        result = _run_git_with_retry(
             ["git", "clone", "--progress", repo_url, str(dest)],
-            text=True,
+            repo_name,
+            f"git clone {repo_name}",
         )
         if result.returncode == 0:
             print(f"✓ Cloned {repo_name}")
@@ -534,17 +604,33 @@ def clone_repository(repo_name, repo_url):
             return True
         else:
             print(f"✗ Failed to clone {repo_name}")
+            if result.stderr:
+                print(f"  {result.stderr.strip()}")
+            # Remove empty destination directory if clone failed
+            if dest.exists() and not (dest / ".git").exists():
+                try:
+                    dest.rmdir()
+                except OSError:
+                    pass
             return False
+
+
+def get_repositories_to_clone(mode, components):
+    """Return the list of repository keys to clone based on mode and components."""
+    if mode == "dev":
+        return get_repositories_for_components(components)
+    # Prod mode does not clone repositories
+    return []
 
 
 def clone_repositories(mode, components):
     """Clone repositories required for the selected mode and components."""
-    print("\n[6/6] Cloning repositories...")
-    if mode == "dev":
-        repos = get_repositories_for_components(components)
-    else:
-        repos = sorted(PROD_MODULES.keys())
-    
+    repos = get_repositories_to_clone(mode, components)
+    if not repos:
+        print("  No repositories to clone for the selected configuration.")
+        return True
+
+    print(f"\nDownloading {len(repos)} repositories...")
     success = True
     for repo in repos:
         repo_url = REPOSITORIES.get(repo)
@@ -568,12 +654,12 @@ def main():
     print("=" * 60)
     
     # Step 1: Detect OS
-    print("\n[1/5] Detecting operating system...")
+    print("\n[1/6] Detecting operating system...")
     os_type = detect_os()
     print(f"✓ OS detected: {os_type}")
 
-    # Step 1.5: Require administrator/sudo privileges
-    print("\n[1.5/5] Checking privileges...")
+    # Step 1b: Require administrator/sudo privileges
+    print("\n[1b/6] Checking privileges...")
     privilege_state = ensure_admin_privileges(os_type)
     if privilege_state == "relaunch":
         sys.exit(0)
@@ -581,7 +667,7 @@ def main():
         sys.exit(1)
     
     # Step 2: Detect package managers
-    print("\n[2/5] Detecting package managers...")
+    print("\n[2/6] Detecting package managers...")
     managers = detect_package_managers(os_type)
     if managers:
         print(f"✓ Package managers found: {', '.join(managers.keys())}")
@@ -589,8 +675,8 @@ def main():
         print("✗ No package managers found")
         sys.exit(1)
     
-    # Step 3: Validate dependencies
-    print("\n[3/5] Validating dependencies...")
+    # Step 3: Install version control tools (git + Sublime Merge)
+    print("\n[3/6] Installing version control tools...")
     if not validate_git():
         if not install_git(os_type):
             print("✗ Git is required but could not be installed")
@@ -599,11 +685,10 @@ def main():
             print("✗ Git is required but not available after installation attempt")
             sys.exit(1)
 
-    # Step 3.5: Ensure Sublime Merge is installed
-    print("\n[3.5/5] Checking Sublime Merge...")
     if not find_sublime_merge_executable():
+        print("  Installing Sublime Merge...")
         if not install_sublime_merge(os_type):
-            print("⚠ Could not install Sublime Merge automatically. Continuing without it.")
+            print("  ⚠ Could not install Sublime Merge automatically. Continuing without it.")
     
     # Step 4: Select mode and components
     print("\n[4/6] User configuration...")
@@ -620,9 +705,12 @@ def main():
         print("Installation cancelled.")
         sys.exit(0)
     
-    # Step 6: Collect credentials and configure Git
-    credentials = None
-    if any(repo in REPOSITORIES for repo in get_repositories_for_components(components)) or mode != "dev":
+    # Step 6: Download repositories (clone/update)
+    print("\n[6/6] Downloading repositories...")
+    
+    repos_to_clone = get_repositories_to_clone(mode, components)
+    if repos_to_clone:
+        # Collect GitHub credentials only if there are repos to clone
         credentials = get_github_credentials()
         if credentials is None:
             print("GitHub credentials are required for private repository access.")
@@ -632,11 +720,11 @@ def main():
             print("Failed to configure Git credential helper. Continuing anyway...")
     
     if not clone_repositories(mode, components):
-        print("Some repositories failed to clone. Review the output and try again.")
+        print("Some repositories failed to download. Review the output and try again.")
         sys.exit(1)
     
     print("\n" + "=" * 60)
-    print("Ready to proceed with installation!")
+    print("✓ All repositories downloaded successfully!")
     print("=" * 60)
     print("\nNext steps:")
     print("- Update environment (mandatory)")

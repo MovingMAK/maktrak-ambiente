@@ -37,23 +37,26 @@ Requisitos e restrições
    - Após a detecção e seleção de modo, executar a atualização de ambiente (mandatória) antes de prosseguir com instalações.
 
 4. Clonagem de repositórios
-   - Preâmbulo (instalar): 
-     - instalar `git` (sempre verificar/instalar) 
-     - Editores: `sublime-text`, `sublime-merge`.
+   - Preâmbulo (instalar git + Sublime Merge juntos):
+     - instalar `git` (sempre verificar/instalar)
+     - instalar `sublime-merge` (sempre verificar/instalar)
+     - Os dois são instalados no mesmo passo — "ferramentas de controle de versão".
    - Definir repositórios diretamente no script e clonar de acordo.
    - Aplicar retries e logging para falhas de rede ou autenticação.
    - Suportar clonagem autenticada do GitHub via token pessoal em variável de ambiente (`GITHUB_TOKEN` ou `GH_TOKEN`).
    - Diretório de clonagem:
-     - Linux: `~/home/repos/maktrak/<nome-do-repo>`
-     - Windows: equivalente à raiz de usuário apropriada.
-   - associar cada repositório ao sublime-merge (não sei como faz de forma eficiente).
+     - Linux: `~/repos/maktrak/<nome-do-repo>`
+     - Windows: equivalente à raiz de usuário apropriauda.
+   - Associar cada repositório ao Sublime Merge:
+     - Após clonar, executar `sublime-merge --background <caminho-do-repo>` (ou `smerge.exe --background` no Windows) para abrir o repositório sem trazer a janela para o foco.
+     - Isso evita múltiplos popups durante o setup.
+     - O SM gerencia automaticamente a lista de repositórios recentes na barra lateral.
    - Repositórios a clonar:
      - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
      - `servidores` — https://github.com/MovingMAK/maktrak-server.git
      - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
      - `firmware` — https://github.com/MovingMAK/maktrak-app.git
      - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
-   - depois de cada clone, associe o repositório ao sublime-merge.
 
 5. Instalação e validação de módulos
    - Para cada módulo habilitado:
