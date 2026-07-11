@@ -25,9 +25,6 @@ import json
 # Base directory for all cloned repositories
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 
-# Always update OS packages (apt upgrade / winget upgrade)
-UPDATE_OS = True
-
 REPOSITORIES = {
     "ambiente": "https://github.com/MovingMAK/maktrak-ambiente.git",
     "servidores": "https://github.com/MovingMAK/maktrak-server.git",
@@ -193,70 +190,41 @@ def refresh_windows_path_from_system():
         print("✓ PATH refreshed in current process")
 
 
-def run_install_command(cmd, os_type, package_name):
-    """Run an install command and apply post-install actions."""
-    print(f"Attempting to install {package_name}...")
+# Package installers: (name, os) -> install command list
+_INSTALL_COMMANDS = {
+    ("git", "windows"): ["winget", "install", "--id", "Git.Git", "-e",
+                         "--accept-package-agreements", "--accept-source-agreements"],
+    ("git", "linux"):   ["sudo", "apt", "install", "-y", "git"],
+    ("sublime-merge", "windows"): ["winget", "install", "--id", "SublimeHQ.SublimeMerge", "-e",
+                                    "--accept-package-agreements", "--accept-source-agreements"],
+    ("sublime-merge", "linux"):   ["sudo", "snap", "install", "sublime-merge", "--classic"],
+}
+
+
+def _install_package(name, os_type):
+    """Install a system package using the pre-configured command for the OS."""
+    cmd = _INSTALL_COMMANDS.get((name, os_type))
+    if not cmd:
+        print(f"✗ Automatic {name} installation not implemented for OS: {os_type}")
+        return False
+
+    print(f"Attempting to install {name}...")
     try:
         result = subprocess.run(cmd, text=True)
     except Exception as exc:
-        print(f"✗ Failed to run {package_name} installation command")
+        print(f"✗ Failed to run {name} installation command")
         print(str(exc))
         return False
 
     if result.returncode != 0:
-        print(f"✗ Failed to install {package_name} automatically")
+        print(f"✗ Failed to install {name} automatically")
         return False
 
     if os_type == "windows":
         refresh_windows_path_from_system()
 
-    print(f"✓ {package_name} installation command completed")
+    print(f"✓ {name} installation command completed")
     return True
-
-
-def install_git(os_type):
-    """Try to install Git using a fixed package manager command per OS."""
-
-    if os_type == "windows":
-        cmd = [
-            "winget",
-            "install",
-            "--id",
-            "Git.Git",
-            "-e",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-        ]
-
-    elif os_type == "linux":
-        cmd = ["sudo", "apt", "install", "-y", "git"]
-
-    else:
-        print(f"✗ Automatic Git installation not implemented for OS: {os_type}")
-        return False
-
-    return run_install_command(cmd, os_type, "Git")
-
-
-def install_sublime_merge(os_type):
-    """Try to install Sublime Merge with a fixed package manager command per OS."""
-    if os_type == "windows":
-        cmd = [
-            "winget",
-            "install",
-            "--id",
-            "SublimeHQ.SublimeMerge",
-            "-e",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-        ]
-    elif os_type == "linux":
-        cmd = ["sudo", "snap", "install", "sublime-merge", "--classic"]
-    else:
-        print(f"✗ Automatic Sublime Merge installation not implemented for OS: {os_type}")
-        return False
-
-    return run_install_command(cmd, os_type, "Sublime Merge")
 
 
 # ============================================================================
@@ -266,86 +234,44 @@ def install_sublime_merge(os_type):
 def select_mode():
     """Prompt user to select dev or prod mode."""
     while True:
-        print("\n--- Select Execution Mode ---")
-        print("1. dev   - Development environment")
-        print("2. prod  - Production environment")
-        choice = input("Enter your choice (1 or 2): ").strip()
-        
-        if choice == "1":
+        c = input("\nMode? (1=dev, 2=prod): ").strip()
+        if c == "1":
             return "dev"
-        elif choice == "2":
+        elif c == "2":
             return "prod"
-        else:
-            print("Invalid choice. Please enter 1 or 2.")
+        print("Invalid. Enter 1 or 2.")
 
 
-def select_dev_components():
-    """Prompt user to select dev components."""
-    print("\n--- Select Development Components ---")
-    components = []
-    
-    for i, category in enumerate(DEV_MODULES.keys(), 1):
-        print(f"{i}. {category}")
-    print(f"{len(DEV_MODULES) + 1}. todos (all categories)")
-    
+def _select_components(items_dict, label):
+    """Prompt user to select components from a dictionary of options."""
+    categories = list(items_dict.keys())
+    print(f"\n--- Select {label} Components ---")
+    for i, cat in enumerate(categories, 1):
+        print(f"{i}. {cat}")
+    print(f"{len(categories) + 1}. todos (all categories)")
+
     choice = input("Enter your choice (comma-separated for multiple): ").strip()
-    
-    if choice == str(len(DEV_MODULES) + 1):
-        # Select all
-        components = list(DEV_MODULES.keys())
-    else:
-        # Select specific categories
-        choices = [c.strip() for c in choice.split(",")]
-        categories = list(DEV_MODULES.keys())
-        for c in choices:
-            try:
-                idx = int(c) - 1
-                if 0 <= idx < len(categories):
-                    components.append(categories[idx])
-            except ValueError:
-                pass
-    
-    return components
 
+    if choice == str(len(categories) + 1):
+        return categories
 
-def select_prod_components():
-    """Prompt user to select prod components."""
-    print("\n--- Select Production Components ---")
-    components = []
-    
-    for i, category in enumerate(PROD_MODULES.keys(), 1):
-        print(f"{i}. {category}")
-    print(f"{len(PROD_MODULES) + 1}. todos (all components)")
-    
-    choice = input("Enter your choice (comma-separated for multiple): ").strip()
-    
-    if choice == str(len(PROD_MODULES) + 1):
-        # Select all
-        components = list(PROD_MODULES.keys())
-    else:
-        # Select specific components
-        choices = [c.strip() for c in choice.split(",")]
-        categories = list(PROD_MODULES.keys())
-        for c in choices:
-            try:
-                idx = int(c) - 1
-                if 0 <= idx < len(categories):
-                    components.append(categories[idx])
-            except ValueError:
-                pass
-    
-    return components
+    result = []
+    for c in choice.split(","):
+        try:
+            idx = int(c.strip()) - 1
+            if 0 <= idx < len(categories):
+                result.append(categories[idx])
+        except ValueError:
+            pass
+    return result
 
 
 def get_software_for_components(components, mode):
     """Return software packages needed for the selected components only."""
+    source = DEV_MODULES if mode == "dev" else PROD_MODULES
     software = set()
-    if mode == "dev":
-        for component in components:
-            software.update(DEV_MODULES.get(component, []))
-    elif mode == "prod":
-        for component in components:
-            software.update(PROD_MODULES.get(component, []))
+    for c in components:
+        software.update(source.get(c, []))
     return sorted(software)
 
 
@@ -454,7 +380,7 @@ def confirm_actions(mode, components, os_type, managers):
     print(f"Mode: {mode}")
     print(f"OS: {os_type}")
     print(f"Package managers available: {', '.join(managers.keys())}")
-    print(f"Update OS packages: {'yes' if UPDATE_OS else 'no'}")
+    print("Update OS packages: yes")
     print("Components to install:")
     for component in components:
         print(f"  - {component}")
@@ -511,14 +437,17 @@ def find_sublime_merge_executable():
             r"C:\Program Files\Sublime Merge\smerge.exe",
             r"C:\Program Files (x86)\Sublime Merge\smerge.exe",
         ]
+    found = None
     for candidate in candidates:
         if os.path.isabs(candidate) and os.path.exists(candidate):
-            print(f"✓ Sublime Merge detected at: {candidate}")
-            return candidate
-        path = shutil.which(candidate)
-        if path:
-            print(f"✓ Sublime Merge detected at: {path}")
-            return path
+            found = candidate
+            break
+        found = shutil.which(candidate)
+        if found:
+            break
+    if found:
+        print(f"✓ Sublime Merge detected at: {found}")
+        return found
     print("⚠ Sublime Merge executable not found in PATH or default locations")
     return None
 
@@ -557,7 +486,6 @@ def _run_git_with_retry(args, repo_name, operation_label):
             "Could not resolve host" in result.stderr
             or "Connection refused" in result.stderr
             or "Connection timed out" in result.stderr
-            or "failed" in result.stderr.lower()
         )
 
         if attempt < MAX_RETRIES and (is_auth_error or is_network_error):
@@ -576,50 +504,48 @@ def _run_git_with_retry(args, repo_name, operation_label):
 def clone_repository(repo_name, repo_url):
     """Clone or update a repository at the standard destination with retry support."""
     dest = get_clone_destination(repo_name)
-    if dest.exists():
-        print(f"Repository already exists: {dest}")
-        if (dest / ".git").exists():
-            print(f"Pulling latest changes in {repo_name}...")
-            result = _run_git_with_retry(
-                ["git", "-C", str(dest), "pull"],
-                repo_name,
-                f"git pull {repo_name}",
-            )
-            if result.returncode == 0:
-                print(f"✓ Updated {repo_name}")
-                register_repo_with_sublime_merge(dest)
-            else:
-                print(f"✗ Failed to update {repo_name}")
-                if result.stderr:
-                    print(f"  {result.stderr.strip()}")
-                return False
-            return True
-        else:
-            print(f"✗ {dest} exists but is not a git repository")
-            return False
-    else:
+
+    # Fresh clone
+    if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"Cloning {repo_name} into {dest}...")
         result = _run_git_with_retry(
             ["git", "clone", "--progress", repo_url, str(dest)],
-            repo_name,
-            f"git clone {repo_name}",
+            repo_name, f"git clone {repo_name}",
         )
         if result.returncode == 0:
             print(f"✓ Cloned {repo_name}")
             register_repo_with_sublime_merge(dest)
             return True
-        else:
-            print(f"✗ Failed to clone {repo_name}")
-            if result.stderr:
-                print(f"  {result.stderr.strip()}")
-            # Remove empty destination directory if clone failed
-            if dest.exists() and not (dest / ".git").exists():
-                try:
-                    dest.rmdir()
-                except OSError:
-                    pass
-            return False
+        print(f"✗ Failed to clone {repo_name}")
+        if result.stderr:
+            print(f"  {result.stderr.strip()}")
+        if dest.exists() and not (dest / ".git").exists():
+            try:
+                dest.rmdir()
+            except OSError:
+                pass
+        return False
+
+    # Already exists
+    print(f"Repository already exists: {dest}")
+    if not (dest / ".git").exists():
+        print(f"✗ {dest} exists but is not a git repository")
+        return False
+
+    print(f"Pulling latest changes in {repo_name}...")
+    result = _run_git_with_retry(
+        ["git", "-C", str(dest), "pull"],
+        repo_name, f"git pull {repo_name}",
+    )
+    if result.returncode == 0:
+        print(f"✓ Updated {repo_name}")
+        register_repo_with_sublime_merge(dest)
+        return True
+    print(f"✗ Failed to update {repo_name}")
+    if result.stderr:
+        print(f"  {result.stderr.strip()}")
+    return False
 
 
 def get_repositories_to_clone(mode, components):
@@ -836,9 +762,8 @@ def setup_flutter_platforms(os_type):
         print("  ⚠ Flutter precache had warnings, continuing...")
 
 
-def setup_android_sdk():
-    """Install Android SDK, accept licenses, create AVDs."""
-    # 1. Install JDK
+def _android_install_jdk():
+    """Install JDK for Android development."""
     print("  Installing JDK for Android development...")
     if platform.system() == "Linux":
         subprocess.run(["sudo", "apt", "install", "-y", "default-jdk-headless"], text=True)
@@ -846,20 +771,25 @@ def setup_android_sdk():
         subprocess.run(["winget", "install", "--id", "Microsoft.OpenJDK.17",
                          "-e", "--accept-package-agreements"], text=True)
 
-    # 2. Set up KVM on Linux
-    if platform.system() == "Linux":
-        print("  Setting up KVM for Android emulator acceleration...")
-        subprocess.run(["sudo", "apt", "install", "-y",
-                        "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
-                        "bridge-utils", "virt-manager"], text=True)
-        subprocess.run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"],
-                       capture_output=True, text=True)
-        if os.path.exists("/dev/kvm"):
-            print("  ✓ KVM available")
-        else:
-            print("  ⚠ /dev/kvm not found — emulators will run without acceleration (slow)")
 
-    # 3. Accept Android licenses via Flutter
+def _android_setup_kvm():
+    """Set up KVM for Android emulator acceleration on Linux."""
+    if platform.system() != "Linux":
+        return
+    print("  Setting up KVM for Android emulator acceleration...")
+    subprocess.run(["sudo", "apt", "install", "-y",
+                    "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
+                    "bridge-utils", "virt-manager"], text=True)
+    subprocess.run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"],
+                   capture_output=True, text=True)
+    if os.path.exists("/dev/kvm"):
+        print("  ✓ KVM available")
+    else:
+        print("  ⚠ /dev/kvm not found — emulators will run without acceleration (slow)")
+
+
+def _android_accept_licenses():
+    """Accept Android SDK licenses via Flutter."""
     print("  Accepting Android SDK licenses...")
     result = subprocess.run(["flutter", "doctor", "--android-licenses"],
                             input="y\n" * 10, text=True, capture_output=True)
@@ -868,32 +798,32 @@ def setup_android_sdk():
     else:
         print("  ⚠ Android license acceptance had issues, continuing...")
 
-    # 4. Get Android SDK location from flutter doctor
-    sdk_root = _get_android_sdk_path()
-    if not sdk_root:
-        print("  ✗ Could not locate Android SDK")
-        return False
 
-    # 5. Install cmdline-tools and platform tools via sdkmanager
+def _android_ensure_sdkmanager(sdk_root):
+    """Ensure sdkmanager is installed and executable."""
     sdkmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "sdkmanager")
     if not os.path.exists(sdkmanager):
         print("  Installing Android SDK cmdline-tools...")
         _install_cmdline_tools(sdk_root)
 
-    if not os.access(sdkmanager, os.X_OK):
-        if os.path.exists(sdkmanager):
-            print("  Fixing sdkmanager permissions...")
-            os.chmod(sdkmanager, 0o755)
-            # Also fix avdmanager and other binaries in the same dir
-            bin_dir = os.path.dirname(sdkmanager)
-            for f in os.listdir(bin_dir):
-                fp = os.path.join(bin_dir, f)
-                if os.path.isfile(fp):
-                    os.chmod(fp, 0o755)
-        else:
-            print("  ✗ sdkmanager not found after install attempt, skipping Android setup")
-            return False
+    if os.access(sdkmanager, os.X_OK):
+        return sdkmanager
 
+    if os.path.exists(sdkmanager):
+        print("  Fixing sdkmanager permissions...")
+        os.chmod(sdkmanager, 0o755)
+        for f in os.listdir(os.path.dirname(sdkmanager)):
+            fp = os.path.join(os.path.dirname(sdkmanager), f)
+            if os.path.isfile(fp):
+                os.chmod(fp, 0o755)
+        return sdkmanager
+
+    print("  ✗ sdkmanager not found after install attempt, skipping Android setup")
+    return None
+
+
+def _android_install_sdk(sdkmanager):
+    """Install Android platform tools and build tools via sdkmanager."""
     print("  Installing Android platform tools and build tools...")
     result = subprocess.run([sdkmanager, "--install",
                              "platform-tools",
@@ -905,24 +835,37 @@ def setup_android_sdk():
     if result.returncode != 0:
         print("  ⚠ sdkmanager install had issues, continuing...")
 
-    # 6. Create AVDs
+
+def _android_create_avds(sdk_root):
+    """Create the two standard AVDs."""
     _create_avd(sdk_root, "pixel_9", "android-36",
                 "Pixel_9_API_36", "Most recent API")
     _create_avd(sdk_root, "pixel_8", "android-34",
                 "Pixel_8_API_34", "Most used API (Android 14)")
 
+
+def setup_android_sdk():
+    """Install Android SDK, accept licenses, create AVDs."""
+    _android_install_jdk()
+    _android_setup_kvm()
+    _android_accept_licenses()
+
+    sdk_root = _get_android_sdk_path()
+    if not sdk_root:
+        print("  ✗ Could not locate Android SDK")
+        return False
+
+    sdkmanager = _android_ensure_sdkmanager(sdk_root)
+    if not sdkmanager:
+        return False
+
+    _android_install_sdk(sdkmanager)
+    _android_create_avds(sdk_root)
     return True
 
 
 def _get_android_sdk_path():
     """Return the Android SDK root path."""
-    # Check common locations
-    candidates = [
-        os.environ.get("ANDROID_HOME"),
-        os.environ.get("ANDROID_SDK_ROOT"),
-        str(Path.home() / "Android" / "Sdk"),
-        str(Path.home() / "android" / "sdk"),
-    ]
     # Try to get from flutter doctor output
     try:
         result = subprocess.run(
@@ -937,10 +880,17 @@ def _get_android_sdk_path():
     except Exception:
         pass
 
+    # Check common locations
+    candidates = [
+        os.environ.get("ANDROID_HOME"),
+        os.environ.get("ANDROID_SDK_ROOT"),
+        str(Path.home() / "Android" / "Sdk"),
+        str(Path.home() / "android" / "sdk"),
+    ]
     for c in candidates:
         if c and os.path.isdir(c):
             return c
-    return candidates[2] if candidates[2] else str(Path.home() / "Android" / "Sdk")
+    return str(Path.home() / "Android" / "Sdk")
 
 
 def _install_cmdline_tools(sdk_root):
@@ -1028,7 +978,7 @@ def install_modules(os_type, components, mode):
         results[sw] = "OK"
         if sw == "flutter":
             needs_flutter_setup = True
-            if "app" in components or "servidor" in components:
+            if "app" in components:
                 needs_android = True
 
     # Post-install: VS Code extensions and settings
@@ -1154,7 +1104,7 @@ def main():
     # Step 3: Install version control tools (git + Sublime Merge)
     print("\n[3/8] Installing version control tools...")
     if not validate_git():
-        if not install_git(os_type):
+        if not _install_package("git", os_type):
             print("✗ Git is required but could not be installed")
             sys.exit(1)
         if not validate_git():
@@ -1163,7 +1113,7 @@ def main():
 
     if not find_sublime_merge_executable():
         print("  Installing Sublime Merge...")
-        if not install_sublime_merge(os_type):
+        if not _install_package("sublime-merge", os_type):
             print("  ⚠ Could not install Sublime Merge automatically. Continuing without it.")
     
     # Step 4: Select mode and components
@@ -1171,9 +1121,9 @@ def main():
     mode = select_mode()
     
     if mode == "dev":
-        components = select_dev_components()
+        components = _select_components(DEV_MODULES, "Development")
     else:
-        components = select_prod_components()
+        components = _select_components(PROD_MODULES, "Production")
     
     # Step 5: Update environment
     print("\n[5/8] Updating environment...")
@@ -1196,7 +1146,7 @@ def main():
             sys.exit(1)
         
         if not configure_git_credential_helper():
-            print("Failed to configure Git credential helper. Continuing anyway...")
+            sys.exit(1)
     
     if not clone_repositories(mode, components):
         print("Some repositories failed to download. Review the output and try again.")
