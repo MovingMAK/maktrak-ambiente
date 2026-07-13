@@ -535,7 +535,7 @@ def clone_repository(repo_name, repo_url):
 
     print(f"Pulling latest changes in {repo_name}...")
     result = _run_git_with_retry(
-        ["git", "-C", str(dest), "pull"],
+        ["git", "-C", str(dest), "pull", "--force"],
         repo_name, f"git pull {repo_name}",
     )
     if result.returncode == 0:
@@ -690,7 +690,7 @@ def _get_vscode_extensions(components):
     if "app" in components or "servidor" in components:
         exts.extend(["dart-code.dart-code", "dart-code.flutter"])
     if "firmware" in components:
-        exts.append("platformio.platformio-ide")
+        exts.append("pioarduino.pioarduino-ide")
     return exts
 
 

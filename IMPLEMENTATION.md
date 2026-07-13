@@ -99,7 +99,7 @@ Requisitos e restrições
       - `ms-python.python` — Python (todos)
       - `dart-code.dart-code` — Dart (app, servidor)
       - `dart-code.flutter` — Flutter com debug (app, servidor)
-      - `platformio.platformio-ide` — PlatformIO IDE (apenas firmware)
+      - `pioarduino.pioarduino-ide` — pioarduino IDE (apenas firmware)
 
 7. Testes e validação
    - Validar a instalação com sucesso de cada item instalado.

@@ -24,7 +24,7 @@ Este documento lista as extensões e ajustes aplicados automaticamente pelo scri
 
 | Extensão | ID | Função |
 |----------|----|--------|
-| PlatformIO IDE | `platformio.platformio-ide` | Desenvolvimento para microcontroladores (Arduino, ESP32, etc.) |
+| pioarduino IDE | `pioarduino.pioarduino-ide` | Desenvolvimento para microcontroladores (Arduino, ESP32, etc.) |
 
 ## Configurações aplicadas
 
