@@ -1161,13 +1161,57 @@ def main():
     if results is None:
         sys.exit(1)
     print_installation_report(results)
-    
+
+    # Post-install extras: configure Xfce panel on Xubuntu
+    _configure_xfce_panel()
+
     print("\n" + "=" * 60)
     print("✓ MakTrak Setup completed successfully!")
     print("=" * 60)
     print("\nNext steps:")
     print("- Validate installation (run validation commands)")
     print("- Start developing!")
+
+
+# ============================================================================
+# Xfce Panel Configuration (Xubuntu)
+# ============================================================================
+
+def _configure_xfce_panel():
+    """Configure Xfce panel: bottom bar with 2 rows (Xubuntu only)."""
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+    if "xfce" not in desktop.lower():
+        return
+
+    print("\nConfiguring Xfce panel...")
+    result = subprocess.run(
+        ["xfconf-query", "-c", "xfce4-panel", "-p", "/panels"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("  \u26a0 Could not query panel configuration")
+        return
+
+    panels = result.stdout.strip().splitlines()
+    if not panels:
+        print("  \u26a0 No panels found")
+        return
+
+    panel_num = panels[0].strip()
+
+    subprocess.run([
+        "xfconf-query", "-c", "xfce4-panel", "-p",
+        f"/panels/{panel_num}/position",
+        "-s", "p=6;x=0;y=0",
+    ], capture_output=True, text=True)
+
+    subprocess.run([
+        "xfconf-query", "-c", "xfce4-panel", "-p",
+        f"/panels/{panel_num}/nrows", "-s", "2",
+    ], capture_output=True, text=True)
+
+    subprocess.run(["xfce4-panel", "-r"], capture_output=True, text=True)
+    print("  \u2713 Panel configured: bottom bar, 2 rows")
 
 
 if __name__ == "__main__":
