@@ -608,7 +608,10 @@ SOFTWARE_INSTALLERS = {
     },
     "kicad": {
         "verify": None,  # checked via shutil.which to avoid launching GUI
-        "linux": ["sudo", "snap", "install", "kicad"],
+        "linux": ["bash", "-c",
+                  "sudo apt install -y software-properties-common && "
+                  "sudo add-apt-repository --yes ppa:kicad/kicad-9.0-releases && "
+                  "sudo apt update && sudo apt install -y kicad"],
         "windows": ["winget", "install", "--id", "KiCad.KiCad",
                      "-e", "--accept-package-agreements", "--accept-source-agreements"],
     },
