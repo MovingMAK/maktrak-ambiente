@@ -12,6 +12,7 @@ Este documento lista as extensões e ajustes aplicados automaticamente pelo scri
 | Markdown All in One | `yzhang.markdown-all-in-one` | Atalhos, TOC, formatação de Markdown |
 | Markdown Editor | `zaaack.markdown-editor` | Editor visual de Markdown |
 | Python | `ms-python.python` | Suporte Python (LSP, debug, virtualenv) |
+| C/C++ | `ms-vscode.cpptools` | Suporte C/C++ (IntelliSense, debug, Arduino) |
 
 ### Para app e servidor (Flutter/Dart)
 

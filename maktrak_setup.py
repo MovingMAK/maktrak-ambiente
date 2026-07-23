@@ -686,6 +686,7 @@ def _get_vscode_extensions(components):
         "yzhang.markdown-all-in-one",
         "zaaack.markdown-editor",
         "ms-python.python",
+        "ms-vscode.cpptools",
     ]
     if "app" in components or "servidor" in components:
         exts.extend(["dart-code.dart-code", "dart-code.flutter"])

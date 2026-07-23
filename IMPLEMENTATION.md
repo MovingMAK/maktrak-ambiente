@@ -97,6 +97,7 @@ Requisitos e restrições
       - `yzhang.markdown-all-in-one` — Markdown All in One (todos)
       - `zaaack.markdown-editor` — Markdown Editor (todos)
       - `ms-python.python` — Python (todos)
+      - `ms-vscode.cpptools` — C/C++ (todos)
       - `dart-code.dart-code` — Dart (app, servidor)
       - `dart-code.flutter` — Flutter com debug (app, servidor)
       - `pioarduino.pioarduino-ide` — pioarduino IDE (apenas firmware)
