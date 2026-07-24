@@ -2,6 +2,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "maktrak_setup.py"
@@ -12,15 +13,20 @@ SPEC.loader.exec_module(maktrak_setup)
 
 
 class GithubAuthTests(unittest.TestCase):
-    def test_read_github_credentials_from_store(self):
+    def test_write_git_credentials(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = Path(tmpdir) / ".git-credentials"
-            store_path.write_text("https://octocat:secret-token@github.com\n", encoding="utf-8")
-            credentials = maktrak_setup.read_github_credentials_from_store(store_path)
-            self.assertEqual(credentials, ("octocat", "secret-token"))
+            maktrak_setup._write_git_credentials("octocat", "secret-token", store_path)
+            self.assertTrue(store_path.exists())
+            content = store_path.read_text(encoding="utf-8")
+            expected_user = quote("octocat")
+            expected_token = quote("secret-token")
+            self.assertIn(f"https://{expected_user}:{expected_token}@github.com", content)
+            self.assertEqual(store_path.stat().st_mode & 0o777, 0o600)
 
-    def test_configure_git_credential_helper(self):
-        result = maktrak_setup.configure_git_credential_helper()
+    def test_validate_git(self):
+        """Git deve estar disponivel no PATH (instalado no sistema)."""
+        result = maktrak_setup._validate_git()
         self.assertTrue(result)
 
 

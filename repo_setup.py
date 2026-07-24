@@ -9,8 +9,11 @@ from maktrak_setup import SetupBase
 class AmbienteSetup(SetupBase):
     """Instalação e configuração do ambiente base MakTrak."""
 
+    def init(self):
+        print("  Preparando ambiente base...")
+
     def install(self):
-        self.install_pkg("vscode")
+        self.install_pkgs("vscode")
 
     def configure(self):
         self.install_extensions([
@@ -20,18 +23,7 @@ class AmbienteSetup(SetupBase):
             "ms-python.python",
             "ms-vscode.cpptools",
         ])
-        self.vscode_setting("workbench.editor.limit.value", 20)
-        self._configure_xfce_panel()
+        self.set_setting("workbench.editor.limit.value", 20)
 
     def test(self):
-        self.results["vscode"] = self.run(["code", "--version"]).returncode == 0
-
-    def _configure_xfce_panel(self):
-        """Configura painel Xfce (Xubuntu): barra inferior com 2 linhas."""
-        import os
-        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-        if "xfce" not in desktop.lower():
-            return
-        self.run(["xfconf-query", "-c", "xfce4-panel", "-p",
-                   "/panels/panel-0/nrows", "-s", "2"])
-        self.run(["xfce4-panel", "-r"])
+        self.results["vscode"] = self.assert_executable("code")

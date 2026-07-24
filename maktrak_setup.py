@@ -1,260 +1,564 @@
 #!/usr/bin/env python3
-"""
-MakTrak Setup Script
-Multiplataforma installer for MakTrak development and production environments.
-"""
+"""MakTrak Setup - bootstrap + orquestrador multicomponente.
 
+Uso:
+    curl -fsSL "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/maktrak_setup.py" \
+        -o /tmp/maktrak_setup.py && python3 /tmp/maktrak_setup.py
+"""
 import sys
 import platform
 import subprocess
 import shutil
 import os
 import time
+import json
+import zipfile
+import importlib.util
+import urllib.request
 import ctypes
 from pathlib import Path
+from abc import ABC, abstractmethod
 from urllib.parse import quote, unquote
-import urllib.request
-import zipfile
-import json
 
 
 # ============================================================================
-# CONFIGURATION: Repositories and Modules
+# CONSTANTES
 # ============================================================================
 
-# Base directory for all cloned repositories
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 3
 
 REPOSITORIES = {
-    "ambiente": "https://github.com/MovingMAK/maktrak-ambiente.git",
-    "servidores": "https://github.com/MovingMAK/maktrak-server.git",
-    "hardware": "https://github.com/MovingMAK/maktrak-hw.git",
-    "firmware": "https://github.com/MovingMAK/maktrak-fw.git",
-    "app": "https://github.com/MovingMAK/maktrak-app.git",
-    "aplicativos": "https://github.com/MovingMAK/maktrak-app.git",
+    "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
+    "servidores":  "https://github.com/MovingMAK/maktrak-server.git",
+    "hardware":    "https://github.com/MovingMAK/maktrak-hw.git",
+    "firmware":    "https://github.com/MovingMAK/maktrak-fw.git",
+    "app":         "https://github.com/MovingMAK/maktrak-app.git",
 }
 
-# Modules organized by category for dev mode
 DEV_MODULES = {
-    "ambiente": ["vscode"],
-    "mecanica": ["freecad"],
+    "ambiente":   ["vscode"],
+    "mecanica":   ["freecad"],
     "eletronica": ["kicad"],
-    "firmware": ["arduino-cli", "vscode"],
-    "servidor": ["vscode", "flutter"],
-    "app": ["vscode", "flutter"],
+    "firmware":   ["arduino-cli", "vscode"],
+    "servidor":   ["vscode", "flutter"],
+    "app":        ["vscode", "flutter"],
 }
 
-# Repository mapping for dev categories
 DEV_REPOSITORIES = {
-    "ambiente": ["ambiente"],
-    "mecanica": ["hardware"],
+    "ambiente":   ["ambiente"],
+    "mecanica":   ["hardware"],
     "eletronica": ["hardware"],
-    "firmware": ["firmware"],
-    "servidor": ["servidores"],
-    "app": ["app"],
+    "firmware":   ["firmware"],
+    "servidor":   ["servidores"],
+    "app":        ["app"],
 }
 
-# Modules for prod mode
 PROD_MODULES = {
     "servidor-prod": ["vscode"],
-    "ia": [],  # To be determined: vLLM, MLX, llama.cpp, Exo
+    "ia": [],
+}
+
+# ============================================================================
+# _PKG - CATALOGO DE SOFTWARE CONHECIDO
+# ============================================================================
+# Formato:
+#   Linux: (gerenciador, extra, pacote)
+#     gerenciador: "apt" | "snap"
+#     extra:       "" | "classic" | "ppa:..."
+#     pacote:      nome do pacote no gerenciador
+#   Windows: "<winget-id>"  (string)
+
+_PKG = {
+    "arduino-cli": {"linux": ('snap', '', 'arduino-cli'), "windows": 'Arduino.ArduinoCLI'},
+    "chromium": {"linux": ('snap', '', 'chromium'), "windows": ""},
+    "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": 'Flutter.Flutter'},
+    "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
+    "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
+    "kicad": {"linux": ('apt', 'ppa:kicad/kicad-9.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
+    "nginx": {"linux": ('apt', '', 'nginx'), "windows": 'NGINX.NGINX'},
+    "postgresql": {"linux": ('apt', '', 'postgresql'), "windows": 'PostgreSQL.PostgreSQL'},
+    "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
+    "vscode": {"linux": ('snap', 'classic', 'code'), "windows": 'Microsoft.VisualStudioCode'},
 }
 
 
-# ============================================================================
-# OS Detection and Package Managers
-# ============================================================================
+# ═════════════════════════════════════════════════════════════════════════════
+# CLASS BASE - SetupBase(ABC)
+# ═════════════════════════════════════════════════════════════════════════════
 
-def detect_os():
-    """Detect the operating system."""
-    system = platform.system()
-    if system == "Linux":
-        return "linux"
-    elif system == "Windows":
-        return "windows"
-    elif system == "Darwin":
-        return "macos"
-    else:
-        print(f"Unsupported OS: {system}")
-        sys.exit(1)
+class SetupBase(ABC):
+    """Classe base para scripts de setup derivados.
 
+    A derivada herda desta classe e implementa as 4 fases:
+        init(), install(), configure(), test()
+    """
 
-def detect_package_managers(os_type):
-    """Detect available package managers."""
-    managers = {}
-    
-    if os_type == "linux":
-        # Check for snap
-        if subprocess.run(["which", "snap"], capture_output=True).returncode == 0:
-            managers["snap"] = True
-        # Check for apt
-        if subprocess.run(["which", "apt"], capture_output=True).returncode == 0:
-            managers["apt"] = True
-        # Check for pip
-        if subprocess.run(["which", "pip"], capture_output=True).returncode == 0:
-            managers["pip"] = True
-    
-    elif os_type == "windows":
-        # Check for winget
-        if subprocess.run(["where", "winget"], capture_output=True).returncode == 0:
-            managers["winget"] = True
-        # Check for pip
-        if subprocess.run(["where", "pip"], capture_output=True).returncode == 0:
-            managers["pip"] = True
-    
-    return managers
+    def __init__(self):
+        self.os_type = self._detect_os()
+        self.managers = self._detect_package_managers()
+        self.results = {}
 
+    # ── Deteccao ──────────────────────────────────────────────────────────
 
-def validate_git():
-    """Validate that git is available."""
-    try:
-        result = subprocess.run(["git", "--version"], capture_output=True, text=True)
-    except FileNotFoundError:
-        print("✗ Git not found in PATH")
-        if platform.system() == "Windows":
-            print("  Install hint: winget install --id Git.Git -e")
-        elif platform.system() == "Linux":
-            print("  Install hint: sudo apt install -y git")
-        return False
+    def _detect_os(self):
+        """Detecta o SO: linux | windows | macos."""
+        system = platform.system()
+        if system == "Linux":
+            return "linux"
+        elif system == "Windows":
+            return "windows"
+        elif system == "Darwin":
+            return "macos"
+        else:
+            print(f"Sistema nao suportado: {system}")
+            sys.exit(1)
 
-    if result.returncode == 0:
-        print(f"✓ Git found: {result.stdout.strip()}")
+    def _detect_package_managers(self):
+        """Detecta gerenciadores de pacote disponiveis."""
+        managers = {}
+        if self.os_type == "linux":
+            if subprocess.run(["which", "snap"], capture_output=True).returncode == 0:
+                managers["snap"] = True
+            if subprocess.run(["which", "apt"], capture_output=True).returncode == 0:
+                managers["apt"] = True
+            if subprocess.run(["which", "pip"], capture_output=True).returncode == 0:
+                managers["pip"] = True
+        elif self.os_type == "windows":
+            if subprocess.run(["where", "winget"], capture_output=True).returncode == 0:
+                managers["winget"] = True
+            if subprocess.run(["where", "pip"], capture_output=True).returncode == 0:
+                managers["pip"] = True
+        return managers
+
+    # ── Execucao low-level (privado) ──────────────────────────────────────
+
+    def _run(self, cmd, capture_output=False, text=True, input_data=None, cwd=None):
+        """Executa um comando e retorna subprocess.CompletedProcess."""
+        try:
+            return subprocess.run(cmd, capture_output=capture_output, text=text,
+                                  input=input_data, cwd=cwd)
+        except Exception as exc:
+            print(f"  XX Falha ao executar: {' '.join(cmd)}")
+            print(f"    {exc}")
+            return subprocess.CompletedProcess(args=cmd, returncode=-1)
+
+    # ── Instalacao de software ────────────────────────────────────────────
+
+    def install_pkgs(self, *names):
+        """Instala um ou mais pacotes do catalogo _PKG.
+
+        Agrupa apt com PPAs (add-apt-repository + apt update unico),
+        snap executa individualmente, winget executa individualmente.
+        """
+        if not names:
+            return
+
+        pkgs = []
+        for name in names:
+            entry = _PKG.get(name)
+            if not entry:
+                print(f"  \u26a0 Pacote desconhecido: {name} - adicione ao _PKG")
+                continue
+            pkgs.append((name, entry))
+
+        if self.os_type == "linux":
+            self._install_linux(pkgs)
+        elif self.os_type == "windows":
+            self._install_windows(pkgs)
+        else:
+            print(f"  \u26a0 SO nao suportado para install_pkgs: {self.os_type}")
+
+    def _install_linux(self, pkgs):
+        """Instala pacotes no Linux, agrupando apt."""
+        apt_pkgs = []
+        snap_pkgs = []
+        ppas = []
+
+        for name, entry in pkgs:
+            info = entry.get("linux")
+            if not info:
+                print(f"  \u26a0 {name}: sem entrada Linux no _PKG")
+                continue
+            manager, extra, pkg_name = info
+
+            if manager == "apt":
+                if extra and extra.startswith("ppa:"):
+                    ppas.append(extra)
+                apt_pkgs.append(pkg_name)
+            elif manager == "snap":
+                snap_pkgs.append((pkg_name, extra))
+
+        # PPAs
+        for ppa in ppas:
+            self._run(["sudo", "add-apt-repository", "--yes", ppa])
+
+        # apt update (se houver PPAs novos)
+        if ppas or apt_pkgs:
+            self._run(["sudo", "apt", "update"])
+
+        # apt install (batch)
+        if apt_pkgs:
+            cmd = ["sudo", "apt", "install", "-y"] + apt_pkgs
+            self._run(cmd)
+
+        # snap install (individual)
+        for pkg_name, classic in snap_pkgs:
+            cmd = ["sudo", "snap", "install", pkg_name]
+            if classic:
+                cmd.append("--classic")
+            self._run(cmd)
+
+    def _install_windows(self, pkgs):
+        """Instala pacotes no Windows via winget."""
+        for name, entry in pkgs:
+            winget_id = entry.get("windows")
+            if not winget_id:
+                print(f"  \u26a0 {name}: sem entrada Windows no _PKG")
+                continue
+            self._run([
+                "winget", "install", "--id", winget_id, "-e",
+                "--accept-package-agreements", "--accept-source-agreements",
+            ])
+        self._refresh_path()
+
+    @staticmethod
+    def _refresh_path():
+        """Atualiza o PATH do processo atual no Windows."""
+        if platform.system() != "Windows":
+            return
+        cmd = (
+            "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
+            "[System.Environment]::GetEnvironmentVariable('Path','User')"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            os.environ["PATH"] = result.stdout.strip()
+
+    # ── Teste de executavel ───────────────────────────────────────────────
+
+    def assert_executable(self, name):
+        """Verifica se um executavel esta instalado e funcional.
+
+        Faz which + --version. Retorna bool e preenche self.results[name].
+        """
+        binary = shutil.which(name)
+        if not binary:
+            self.results[name] = False
+            return False
+
+        result = self._run([binary, "--version"], capture_output=True)
+        ok = result.returncode == 0
+        self.results[name] = ok
+        return ok
+
+    # ── Sistema - servicos, configuracao, comandos ────────────────────────
+
+    def service_enable(self, name):
+        """Habilita um servico systemd."""
+        self._run(["sudo", "systemctl", "enable", name])
+
+    def service_restart(self, name):
+        """Reinicia um servico systemd."""
+        self._run(["sudo", "systemctl", "restart", name])
+
+    def write_config(self, path, content, sudo=True):
+        """Escreve um arquivo de configuracao (string ou dict JSON)."""
+        if isinstance(content, dict):
+            content = json.dumps(content, indent=4)
+        path = Path(path)
+        if sudo:
+            self._run(["bash", "-c", f"cat <<'EOF' | sudo tee {path}\n{content}\nEOF"])
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+    def append_line(self, file_path, line):
+        """Adiciona uma linha ao final de um arquivo."""
+        self._run(["bash", "-c", f"echo '{line}' | sudo tee -a {file_path}"])
+
+    def create_symlink(self, target, link):
+        """Cria um symlink (sudo)."""
+        self._run(["sudo", "ln", "-sf", target, link])
+
+    # ── Flutter ───────────────────────────────────────────────────────────
+
+    def flutter_build(self, path, platform_target):
+        """Compila um projeto Flutter para a plataforma alvo."""
+        self._run(["flutter", "build", platform_target], cwd=str(path))
+
+    def flutter_test(self, path):
+        """Executa os testes de um projeto Flutter."""
+        self._run(["flutter", "test"], cwd=str(path))
+
+    def flutter_config(self, opts):
+        """Aplica configuracoes no Flutter (ex: --enable-web)."""
+        self._run(["flutter", "config"] + opts)
+
+    # ── Android SDK ───────────────────────────────────────────────────────
+
+    def setup_android(self):
+        """Instala JDK + KVM + licencas + cmdline-tools + SDK."""
+        self._android_install_jdk()
+        self._android_setup_kvm()
+        self._android_accept_licenses()
+        sdk_root = self._get_android_sdk_path()
+        if not sdk_root:
+            print("  XX Android SDK nao localizado")
+            return False
+        sdkmanager = self._android_ensure_sdkmanager(sdk_root)
+        if not sdkmanager:
+            return False
+        self._android_install_sdk(sdkmanager)
         return True
 
-    print("✗ Git command failed")
-    if result.stderr:
-        print(result.stderr.strip())
-    return False
+    def create_avd(self, name, device, target, description=""):
+        """Cria um Android Virtual Device."""
+        sdk_root = self._get_android_sdk_path()
+        if not sdk_root:
+            return
+        avdmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "avdmanager")
+        if not os.path.exists(avdmanager):
+            print(f"  \u26a0 avdmanager nao encontrado, ignorando AVD {name}")
+            return
+        result = self._run([avdmanager, "list", "avd", "-c"], capture_output=True)
+        if name in result.stdout:
+            print(f"  \u2713 AVD {name} ja existe")
+            return
+        print(f"  Criando AVD {name} ({description})...")
+        self._run([
+            avdmanager, "create", "avd", "--force",
+            "--device", device, "--name", name,
+            "--package", f"system-images;{target};google_apis;x86_64",
+            "--tag", "google_apis",
+        ])
+
+    def _android_install_jdk(self):
+        """Instala JDK para desenvolvimento Android."""
+        print("  Instalando JDK...")
+        if self.os_type == "linux":
+            self._run(["sudo", "apt", "install", "-y", "default-jdk-headless"])
+        elif self.os_type == "windows":
+            self._run(["winget", "install", "--id", "Microsoft.OpenJDK.17",
+                       "-e", "--accept-package-agreements"])
+
+    def _android_setup_kvm(self):
+        """Configura KVM para aceleracao de emulador (Linux)."""
+        if self.os_type != "linux":
+            return
+        print("  Configurando KVM...")
+        self._run(["sudo", "apt", "install", "-y",
+                   "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
+                   "bridge-utils", "virt-manager"])
+        self._run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"])
+
+    def _android_accept_licenses(self):
+        """Aceita licencas do Android SDK via Flutter."""
+        print("  Aceitando licencas Android...")
+        self._run(["flutter", "doctor", "--android-licenses"], input_data="y\n" * 10)
+
+    def _android_ensure_sdkmanager(self, sdk_root):
+        """Garante que sdkmanager esta instalado e executavel."""
+        sdkmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "sdkmanager")
+        if not os.path.exists(sdkmanager):
+            print("  Instalando Android cmdline-tools...")
+            self._install_cmdline_tools(sdk_root)
+        if os.access(sdkmanager, os.X_OK):
+            return sdkmanager
+        if os.path.exists(sdkmanager):
+            os.chmod(sdkmanager, 0o755)
+            for fn in os.listdir(os.path.dirname(sdkmanager)):
+                fp = os.path.join(os.path.dirname(sdkmanager), fn)
+                if os.path.isfile(fp):
+                    os.chmod(fp, 0o755)
+            return sdkmanager
+        return None
+
+    def _android_install_sdk(self, sdkmanager):
+        """Instala Android platform tools e build tools."""
+        print("  Instalando Android platform tools...")
+        self._run([sdkmanager, "--install",
+                   "platform-tools",
+                   "build-tools;36.0.0",
+                   "platforms;android-36",
+                   "platforms;android-34",
+                   "emulator"])
+
+    def _get_android_sdk_path(self):
+        """Retorna o caminho do Android SDK."""
+        try:
+            result = self._run(["flutter", "doctor", "-v"], capture_output=True)
+            for line in result.stdout.splitlines():
+                if "Android SDK" in line:
+                    path = line.split("at")[-1].strip()
+                    if os.path.isdir(path):
+                        return path
+        except Exception:
+            pass
+        candidates = [
+            os.environ.get("ANDROID_HOME"),
+            os.environ.get("ANDROID_SDK_ROOT"),
+            str(Path.home() / "Android" / "Sdk"),
+            str(Path.home() / "android" / "sdk"),
+        ]
+        for c in candidates:
+            if c and os.path.isdir(c):
+                return c
+        return str(Path.home() / "Android" / "Sdk")
+
+    def _install_cmdline_tools(self, sdk_root):
+        """Download e extrai Android cmdline-tools."""
+        tools_dir = Path(sdk_root) / "cmdline-tools"
+        tools_dir.mkdir(parents=True, exist_ok=True)
+        url = ("https://dl.google.com/android/repository/"
+               "commandlinetools-linux-11076708_latest.zip")
+        if platform.system() == "Windows":
+            url = ("https://dl.google.com/android/repository/"
+                   "commandlinetools-win-11076708_latest.zip")
+        zip_path = tools_dir / "cmdline-tools.zip"
+        print("  Downloading Android cmdline-tools...")
+        try:
+            urllib.request.urlretrieve(url, zip_path)
+        except Exception as exc:
+            print(f"  XX Download falhou: {exc}")
+            return
+        print("  Extraindo...")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(tools_dir)
+        zip_path.unlink()
+        (tools_dir / "latest").mkdir(exist_ok=True)
+        for item in (tools_dir / "cmdline-tools").iterdir():
+            if item.name != "latest":
+                shutil.move(str(item), str(tools_dir / "latest" / item.name))
+        (tools_dir / "cmdline-tools").rmdir()
+        bin_dir = tools_dir / "latest" / "bin"
+        if bin_dir.exists():
+            for fn in bin_dir.iterdir():
+                fn.chmod(fn.stat().st_mode | 0o111)
+
+    # ── VS Code ───────────────────────────────────────────────────────────
+
+    def install_extensions(self, exts):
+        """Instala extensoes do VS Code."""
+        for ext in exts:
+            result = self._run(["code", "--install-extension", ext, "--force"],
+                               capture_output=True)
+            if result.returncode == 0:
+                print(f"       \u2713 Extensao: {ext}")
+            else:
+                print(f"       \u26a0 Falha na extensao: {ext}")
+
+    def set_setting(self, key, value):
+        """Ajusta uma configuracao do VS Code via settings.json."""
+        settings_path = Path.home() / ".config" / "Code" / "User" / "settings.json"
+        try:
+            if settings_path.exists():
+                settings = json.loads(settings_path.read_text())
+            else:
+                settings = {}
+                settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings[key] = value
+            settings_path.write_text(json.dumps(settings, indent=4))
+        except Exception as exc:
+            print(f"  \u26a0 Nao foi possivel atualizar settings.json: {exc}")
+
+    # ── Fases abstratas - a derivada implementa as 4 ──────────────────────
+
+    @abstractmethod
+    def init(self):
+        """Fase de inicializacao. Chamada antes de install()."""
+        ...
+
+    @abstractmethod
+    def install(self):
+        """Fase de instalacao. Instalar pacotes via self.install_pkgs()."""
+        ...
+
+    @abstractmethod
+    def configure(self):
+        """Fase de configuracao. Aplicar settings, servicos, etc."""
+        ...
+
+    @abstractmethod
+    def test(self):
+        """Fase de teste. Verificar instalacao via self.assert_executable()."""
+        ...
 
 
-def relaunch_windows_as_admin():
-    """Relaunch the current script with UAC elevation on Windows and keep shell open."""
-    script_path = os.path.abspath(sys.argv[0])
-    script_and_args = subprocess.list2cmdline([script_path, *sys.argv[1:]])
-    command = f'& "{sys.executable}" {script_and_args}'
-    params = subprocess.list2cmdline(["-NoExit", "-Command", command])
-    rc = ctypes.windll.shell32.ShellExecuteW(
-        None,
-        "runas",
-        "powershell.exe",
-        params,
-        None,
-        1,
-    )
-    return rc > 32
 
+# ============================================================================
+# FUNCOES DO ORQUESTRADOR (standalone - nao estao na SetupBase)
+# ============================================================================
 
-def ensure_admin_privileges(os_type):
-    """Require administrator/sudo privileges at the beginning of execution."""
+def require_admin():
+    """Requer privilegios de administrador/sudo no inicio da execucao."""
+    os_type = platform.system().lower()
     if os_type == "windows":
         try:
             is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
         except Exception:
             is_admin = False
         if not is_admin:
-            print("Administrator privileges are required. Requesting elevation...")
-            if relaunch_windows_as_admin():
-                print("✓ Elevation request sent. Continuing in elevated window.")
-                return "relaunch"
-            print("✗ Could not request elevation. Please run PowerShell as Administrator.")
-            return False
-        return True
-
-    if os_type == "linux":
+            print("Privilegios de administrador necessarios. Solicitando elevacao...")
+            script_path = os.path.abspath(sys.argv[0])
+            script_and_args = subprocess.list2cmdline([script_path] + sys.argv[1:])
+            command = f'& "{sys.executable}" {script_and_args}'
+            params = subprocess.list2cmdline(["-NoExit", "-Command", command])
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", "powershell.exe",
+                                                      params, None, 1)
+            if rc > 32:
+                print("\u2713 Elevacao solicitada. Continuando na janela elevada.")
+                sys.exit(0)
+            print("\u2717 Nao foi possivel elevar privilegios.")
+            sys.exit(1)
+    elif os_type.startswith("linux"):
         result = subprocess.run(["sudo", "-v"], text=True)
         if result.returncode != 0:
-            print("✗ Sudo privileges are required.")
-            print("  Please run with a user that can use sudo and try again.")
-            return False
-        return True
-
-    return True
+            print("\u2717 Privilegios sudo necessarios.")
+            sys.exit(1)
+    print("\u2713 Privilegios OK")
 
 
-def refresh_windows_path_from_system():
-    """Refresh current process PATH from system/user values after installations."""
-    if platform.system() != "Windows":
-        return
+def update_environment():
+    """Atualiza listas de pacotes (apt update / winget upgrade)."""
+    os_type = platform.system().lower()
+    if os_type.startswith("linux"):
+        print("  apt update...")
+        subprocess.run(["sudo", "apt", "update"], text=True)
+        print("  apt upgrade -y...")
+        subprocess.run(["sudo", "apt", "upgrade", "-y"], text=True)
+    elif os_type == "windows":
+        print("  winget upgrade...")
+        subprocess.run(["winget", "upgrade"], text=True)
+        subprocess.run(["winget", "upgrade", "--all",
+                        "--accept-package-agreements", "--accept-source-agreements"], text=True)
 
-    command = (
-        "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
-        "[System.Environment]::GetEnvironmentVariable('Path','User')"
-    )
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", command],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        os.environ["PATH"] = result.stdout.strip()
-        print("✓ PATH refreshed in current process")
-
-
-# Package installers: (name, os) -> install command list
-_INSTALL_COMMANDS = {
-    ("git", "windows"): ["winget", "install", "--id", "Git.Git", "-e",
-                         "--accept-package-agreements", "--accept-source-agreements"],
-    ("git", "linux"):   ["sudo", "apt", "install", "-y", "git"],
-    ("sublime-merge", "windows"): ["winget", "install", "--id", "SublimeHQ.SublimeMerge", "-e",
-                                    "--accept-package-agreements", "--accept-source-agreements"],
-    ("sublime-merge", "linux"):   ["sudo", "snap", "install", "sublime-merge", "--classic"],
-}
-
-
-def _install_package(name, os_type):
-    """Install a system package using the pre-configured command for the OS."""
-    cmd = _INSTALL_COMMANDS.get((name, os_type))
-    if not cmd:
-        print(f"✗ Automatic {name} installation not implemented for OS: {os_type}")
-        return False
-
-    print(f"Attempting to install {name}...")
-    try:
-        result = subprocess.run(cmd, text=True)
-    except Exception as exc:
-        print(f"✗ Failed to run {name} installation command")
-        print(str(exc))
-        return False
-
-    if result.returncode != 0:
-        print(f"✗ Failed to install {name} automatically")
-        return False
-
-    if os_type == "windows":
-        refresh_windows_path_from_system()
-
-    print(f"✓ {name} installation command completed")
-    return True
-
-
-# ============================================================================
-# User Interaction
-# ============================================================================
 
 def select_mode():
-    """Prompt user to select dev or prod mode."""
+    """Solicita ao usuario selecionar modo dev ou prod."""
     while True:
-        c = input("\nMode? (1=dev, 2=prod): ").strip()
+        c = input("\nModo? (1=dev, 2=prod): ").strip()
         if c == "1":
             return "dev"
         elif c == "2":
             return "prod"
-        print("Invalid. Enter 1 or 2.")
+        print("Invalido. Digite 1 ou 2.")
 
 
-def _select_components(items_dict, label):
-    """Prompt user to select components from a dictionary of options."""
+def select_components(items_dict, label):
+    """Solicita ao usuario selecionar componentes."""
     categories = list(items_dict.keys())
-    print(f"\n--- Select {label} Components ---")
+    print(f"\n--- Selecionar componentes ({label}) ---")
     for i, cat in enumerate(categories, 1):
         print(f"{i}. {cat}")
-    print(f"{len(categories) + 1}. todos (all categories)")
-
-    choice = input("Enter your choice (comma-separated for multiple): ").strip()
-
+    print(f"{len(categories) + 1}. todos")
+    choice = input("Escolha (separados por virgula): ").strip()
     if choice == str(len(categories) + 1):
         return categories
-
     result = []
     for c in choice.split(","):
         try:
@@ -266,8 +570,228 @@ def _select_components(items_dict, label):
     return result
 
 
-def get_software_for_components(components, mode):
-    """Return software packages needed for the selected components only."""
+def confirm(mode, components):
+    """Exibe resumo e solicita confirmacao do usuario."""
+    print(f"\n--- Resumo da Instalacao ---")
+    print(f"Modo: {mode}")
+    print(f"Componentes: {', '.join(components)}")
+    software = _get_software_for_components(components, mode)
+    if software:
+        print(f"Softwares: {', '.join(software)}")
+    else:
+        print("Softwares: nenhum")
+    repos = _get_repositories_to_clone(mode, components)
+    if repos:
+        print(f"Repositorios: {', '.join(repos)}")
+    confirm = input("\nProsseguir? (YES/no): ").strip().lower()
+    return confirm in {"yes", ""}
+
+
+def select_branch():
+    """Solicita ao usuario uma branch especifica (default: main)."""
+    branch = input("Branch dos repositorios? (Enter = main): ").strip()
+    return branch if branch else "main"
+
+
+def print_report(results):
+    """Exibe relatorio formatado dos resultados."""
+    if not results:
+        return
+    print("\n--- Relatorio de Instalacao ---")
+    all_ok = True
+    for name, status in sorted(results.items()):
+        icon = "\u2713" if status else "\u2717"
+        print(f"  {icon} {name}: {'OK' if status else 'FALHA'}")
+        if not status:
+            all_ok = False
+    if all_ok:
+        print("\n\u2713 Todos os modulos instalados com sucesso!")
+    else:
+        print("\n\u26a0 Alguns modulos falharam.")
+
+
+# ============================================================================
+# REGISTRO EM sys.modules + CARREGADOR DINAMICO
+# ============================================================================
+
+def register_module(path):
+    """Registra maktrak_setup.py em sys.modules para import pelas derivadas."""
+    name = "maktrak_setup"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+
+
+def load_derived(repo_setup_path):
+    """Carrega repo_setup.py e retorna a classe derivada de SetupBase."""
+    spec = importlib.util.spec_from_file_location(
+        f"repo_{repo_setup_path.parent.name}", repo_setup_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for attr_name in dir(module):
+        obj = getattr(module, attr_name)
+        if isinstance(obj, type) and issubclass(obj, SetupBase) and obj is not SetupBase:
+            return obj
+    raise ValueError(f"Nenhuma classe SetupBase encontrada em {repo_setup_path}")
+
+
+# ============================================================================
+# GIT - PRIVADO DO ORQUESTRADOR
+# ============================================================================
+
+def _validate_git():
+    """Verifica se git esta disponivel."""
+    try:
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False
+    return result.returncode == 0
+
+
+def _setup_credentials():
+    """Configura credenciais GitHub (token via store, env, ou prompt)."""
+    store_path = Path.home() / ".git-credentials"
+
+    # Tenta ler credenciais salvas
+    if store_path.exists():
+        try:
+            line = store_path.read_text(encoding="utf-8").strip().splitlines()[0]
+            if line.startswith("https://"):
+                print("\u2713 Credenciais GitHub encontradas no store")
+                return
+        except Exception:
+            pass
+
+    # Environment variables
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    username = os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER") or "git"
+    if token:
+        print("\u2713 Usando GITHUB_TOKEN do ambiente")
+        _write_git_credentials(username, token, store_path)
+        return
+
+    # Prompt interativo
+    print("\n--- Autenticacao GitHub ---")
+    username = input("GitHub username: ").strip()
+    token = input("GitHub personal access token: ").strip()
+    if not username or not token:
+        print("\u2717 Credenciais necessarias para repositorios privados")
+        sys.exit(1)
+    _write_git_credentials(username, token, store_path)
+
+    # Configura git credential helper
+    subprocess.run(["git", "config", "--global", "credential.helper", "store"],
+                   capture_output=True, text=True)
+
+
+def _write_git_credentials(username, token, store_path):
+    """Persiste credenciais no arquivo .git-credentials."""
+    encoded_username = quote(username)
+    encoded_token = quote(token)
+    store_path.write_text(f"https://{encoded_username}:{encoded_token}@github.com\n",
+                          encoding="utf-8")
+    store_path.chmod(0o600)
+
+
+def _clone_repos(mode, components, branch="main"):
+    """Clona ou atualiza os repositorios dos componentes selecionados."""
+    repos = _get_repositories_to_clone(mode, components)
+    if not repos:
+        return True
+    print(f"\nClonando {len(repos)} repositorio(s) (branch: {branch})...")
+    for repo_name in repos:
+        repo_url = REPOSITORIES.get(repo_name)
+        if not repo_url:
+            print(f"\u2717 URL nao configurada para: {repo_name}")
+            return False
+        if not _clone_one(repo_name, repo_url, branch):
+            return False
+    return True
+
+
+def _clone_one(repo_name, repo_url, branch="main"):
+    """Clona ou atualiza um repositorio em uma branch especifica."""
+    dest = MOVINGMAK_REPOS_BASE / repo_name
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  Clonando {repo_name} ({branch})...")
+        cmd = ["git", "clone", "--progress", "--branch", branch,
+               repo_url, str(dest)]
+        result = _run_git_with_retry(cmd, repo_name)
+        if result.returncode == 0:
+            print(f"  \u2713 Clonado {repo_name} ({branch})")
+            _register_sublime_merge(dest)
+            return True
+        print(f"  \u2717 Falha ao clonar {repo_name}")
+        return False
+    print(f"  Repositorio ja existe: {dest}")
+    # Troca para a branch desejada antes do pull
+    subprocess.run(["git", "-C", str(dest), "checkout", branch],
+                   capture_output=True, text=True)
+    result = _run_git_with_retry(
+        ["git", "-C", str(dest), "pull", "--force"], repo_name
+    )
+    if result.returncode == 0:
+        print(f"  \u2713 Atualizado {repo_name} ({branch})")
+        _register_sublime_merge(dest)
+        return True
+    print(f"  \u2717 Falha ao atualizar {repo_name}")
+    return False
+
+
+def _run_git_with_retry(args, repo_name):
+    """Executa comando git com retry em caso de erro de autenticacao/rede."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result
+        is_auth = "403" in result.stderr or "Authentication failed" in result.stderr
+        is_net = ("Could not resolve host" in result.stderr or
+                  "Connection refused" in result.stderr or
+                  "Connection timed out" in result.stderr)
+        if attempt < MAX_RETRIES and (is_auth or is_net):
+            delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+            print(f"  \u26a0 Tentativa {attempt}/{MAX_RETRIES} - retentando em {delay}s...")
+            time.sleep(delay)
+        else:
+            break
+    return result
+
+
+def _register_sublime_merge(repo_path):
+    """Abre o repositorio no Sublime Merge (background)."""
+    candidates = ["smerge", "sublime-merge"]
+    if platform.system() == "Windows":
+        candidates = ["smerge.exe", "sublime-merge.exe"]
+    exe = None
+    for c in candidates:
+        exe = shutil.which(c)
+        if exe:
+            break
+    if not exe:
+        return
+    try:
+        subprocess.Popen([exe, "--background", str(repo_path)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def _get_repositories_to_clone(mode, components):
+    """Retorna lista de chaves de repositorios a clonar."""
+    if mode != "dev":
+        return []
+    repos = set()
+    for component in components:
+        repos.update(DEV_REPOSITORIES.get(component, []))
+    return sorted(repos)
+
+
+def _get_software_for_components(components, mode):
+    """Retorna lista de software necessarios para os componentes."""
     source = DEV_MODULES if mode == "dev" else PROD_MODULES
     software = set()
     for c in components:
@@ -275,944 +799,124 @@ def get_software_for_components(components, mode):
     return sorted(software)
 
 
-def get_repositories_for_components(components):
-    """Return the repositories required by the selected dev components."""
-    repos = set()
-    for component in components:
-        repos.update(DEV_REPOSITORIES.get(component, []))
-    return sorted(repos)
-
-
-def get_credential_store_path():
-    """Return the path of the Git credential store file."""
-    return Path.home() / ".git-credentials"
-
-
-def read_github_credentials_from_store(store_path=None):
-    """Read GitHub credentials from the Git credential store file if present."""
-    path = store_path or get_credential_store_path()
-    if not path.exists():
-        return None
-
-    try:
-        line = path.read_text(encoding="utf-8").strip().splitlines()[0]
-    except (OSError, IndexError):
-        return None
-
-    if not line.startswith("https://"):
-        return None
-
-    try:
-        auth_part = line.split("https://", 1)[1].split("@", 1)[0]
-    except IndexError:
-        return None
-
-    if ":" not in auth_part:
-        return None
-
-    username, token = auth_part.split(":", 1)
-    return unquote(username), unquote(token)
-
-
-def write_github_credentials_to_store(username, token, store_path=None):
-    """Persist GitHub credentials in a simple Git-compatible credential store file."""
-    path = store_path or get_credential_store_path()
-    encoded_username = quote(username)
-    encoded_token = quote(token)
-    path.write_text(f"https://{encoded_username}:{encoded_token}@github.com\n", encoding="utf-8")
-    path.chmod(0o600)
-
-
-def configure_git_credential_helper():
-    """Configure Git to use the credential store for HTTPS authentication."""
-    result = subprocess.run(
-        ["git", "config", "--global", "credential.helper", "store"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        print("✓ Git credential helper configured for automatic HTTPS authentication")
-        return True
-    else:
-        print("✗ Failed to configure Git credential helper")
-        print(result.stderr)
-        return False
-
-
-def get_github_credentials(store_path=None):
-    """Collect GitHub credentials for private repository access or reuse stored credentials.
-
-    Priority:
-    1. Saved credential store file (.git-credentials)
-    2. GITHUB_TOKEN or GH_TOKEN environment variable
-    3. Interactive prompt
-    """
-    # Priority 1: check credential store
-    existing = read_github_credentials_from_store(store_path)
-    if existing:
-        print("✓ Reusing saved GitHub credentials from the local credential store")
-        return existing
-
-    # Priority 2: check environment variables
-    env_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    env_username = os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER") or "git"
-    if env_token:
-        print("✓ Using GitHub token from environment variable")
-        write_github_credentials_to_store(env_username, env_token, store_path)
-        return env_username, env_token
-
-    # Priority 3: interactive prompt
-    print("\n--- GitHub Authentication ---")
-    print("  Tip: Set GITHUB_TOKEN or GH_TOKEN environment variable to skip this prompt.")
-    username = input("GitHub username: ").strip()
-    token = input("GitHub personal access token (hidden): ").strip()
-    if not username or not token:
-        print("✗ GitHub username and token are required for private repository access")
-        return None
-
-    write_github_credentials_to_store(username, token, store_path)
-    return username, token
-
-
-def confirm_actions(mode, components, os_type, managers):
-    """Show user a summary of planned actions and request confirmation."""
-    print("\n--- Installation Summary ---")
-    print(f"Mode: {mode}")
-    print(f"OS: {os_type}")
-    print(f"Package managers available: {', '.join(managers.keys())}")
-    print("Update OS packages: yes")
-    print("Components to install:")
-    for component in components:
-        print(f"  - {component}")
-    software = get_software_for_components(components, mode)
-    print("Software to install:")
-    if software:
-        for item in software:
-            print(f"  - {item}")
-    else:
-        print("  - none")
-
-    # Extensões do VS Code
-    if "vscode" in software:
-        vscode_exts = _get_vscode_extensions(components)
-        if vscode_exts:
-            print("VS Code extensions to install:")
-            for ext in vscode_exts:
-                print(f"  - {ext}")
-    
-    repos = get_repositories_to_clone(mode, components)
-    if repos:
-        print(f"Repositories to clone (into {MOVINGMAK_REPOS_BASE}):")
-        for repo in repos:
-            repo_url = REPOSITORIES.get(repo, "")
-            if repo_url:
-                print(f"  - {repo}: {repo_url}")
-            else:
-                print(f"  - {repo}")
-    else:
-        print("No repositories to clone for the selected configuration.")
-    
-    confirm = input("\nProceed with these actions? (YES/no): ").strip().lower()
-    return confirm in {"yes", ""}
-
-
-def get_clone_destination(repo_name):
-    """Return the standard clone destination path for a repo.
-
-    Linux:   ~/repos/movingmak/maktrak/<repo-name>
-    Windows: %USERPROFILE%\\repos\\movingmak\\maktrak\\<repo-name>
-    """
-    return MOVINGMAK_REPOS_BASE / repo_name
-
-
-def find_sublime_merge_executable():
-    """Return the Sublime Merge executable name or path if installed."""
-    candidates = ["smerge", "sublime-merge"]
-    if platform.system() == "Windows":
-        candidates = [
-            "smerge.exe",
-            "sublime-merge.exe",
-            "smerge",
-            "sublime-merge",
-            r"C:\Program Files\Sublime Merge\smerge.exe",
-            r"C:\Program Files (x86)\Sublime Merge\smerge.exe",
-        ]
-    found = None
-    for candidate in candidates:
-        if os.path.isabs(candidate) and os.path.exists(candidate):
-            found = candidate
-            break
-        found = shutil.which(candidate)
-        if found:
-            break
-    if found:
-        print(f"✓ Sublime Merge detected at: {found}")
-        return found
-    print("⚠ Sublime Merge executable not found in PATH or default locations")
-    return None
-
-
-def register_repo_with_sublime_merge(repo_path):
-    """Open a repository in Sublime Merge (background) after cloning, so it appears in the sidebar."""
-    exe = find_sublime_merge_executable()
-    if not exe:
-        return
-
-    try:
-        print(f"  Opening {repo_path.name} in Sublime Merge (background)...")
-        subprocess.Popen(
-            [exe, "--background", str(repo_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        print(f"  ✓ {repo_path.name} registered in Sublime Merge")
-    except Exception:
-        print(f"  ⚠ Could not open {repo_path.name} in Sublime Merge (repo is cloned locally)")
-
-
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 3
-
-
-def _run_git_with_retry(args, repo_name, operation_label):
-    """Run a git command with exponential backoff retry."""
-    for attempt in range(1, MAX_RETRIES + 1):
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode == 0:
-            return result
-
-        is_auth_error = "403" in result.stderr or "Authentication failed" in result.stderr
-        is_network_error = (
-            "Could not resolve host" in result.stderr
-            or "Connection refused" in result.stderr
-            or "Connection timed out" in result.stderr
-        )
-
-        if attempt < MAX_RETRIES and (is_auth_error or is_network_error):
-            delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
-            print(f"  ⚠ {operation_label} failed (attempt {attempt}/{MAX_RETRIES})"
-                  f" — retrying in {delay}s...")
-            if is_auth_error:
-                print(f"    Possible authentication issue. Check your GitHub token.")
-            time.sleep(delay)
-        else:
-            break
-
-    return result
-
-
-def clone_repository(repo_name, repo_url):
-    """Clone or update a repository at the standard destination with retry support."""
-    dest = get_clone_destination(repo_name)
-
-    # Fresh clone
-    if not dest.exists():
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Cloning {repo_name} into {dest}...")
-        result = _run_git_with_retry(
-            ["git", "clone", "--progress", repo_url, str(dest)],
-            repo_name, f"git clone {repo_name}",
-        )
-        if result.returncode == 0:
-            print(f"✓ Cloned {repo_name}")
-            register_repo_with_sublime_merge(dest)
-            return True
-        print(f"✗ Failed to clone {repo_name}")
-        if result.stderr:
-            print(f"  {result.stderr.strip()}")
-        if dest.exists() and not (dest / ".git").exists():
-            try:
-                dest.rmdir()
-            except OSError:
-                pass
-        return False
-
-    # Already exists
-    print(f"Repository already exists: {dest}")
-    if not (dest / ".git").exists():
-        print(f"✗ {dest} exists but is not a git repository")
-        return False
-
-    print(f"Pulling latest changes in {repo_name}...")
-    result = _run_git_with_retry(
-        ["git", "-C", str(dest), "pull", "--force"],
-        repo_name, f"git pull {repo_name}",
-    )
-    if result.returncode == 0:
-        print(f"✓ Updated {repo_name}")
-        register_repo_with_sublime_merge(dest)
-        return True
-    print(f"✗ Failed to update {repo_name}")
-    if result.stderr:
-        print(f"  {result.stderr.strip()}")
-    return False
-
-
-def get_repositories_to_clone(mode, components):
-    """Return the list of repository keys to clone based on mode and components."""
-    if mode == "dev":
-        return get_repositories_for_components(components)
-    # Prod mode does not clone repositories
-    return []
-
-
-def clone_repositories(mode, components):
-    """Clone repositories required for the selected mode and components."""
-    repos = get_repositories_to_clone(mode, components)
-    if not repos:
-        print("  No repositories to clone for the selected configuration.")
-        return True
-
-    print(f"\nDownloading {len(repos)} repositories...")
-    for repo in repos:
-        repo_url = REPOSITORIES.get(repo)
-        if not repo_url:
-            print(f"✗ No URL configured for repository: {repo}")
-            return False
-        if not clone_repository(repo, repo_url):
-            return False
-    return True
-
-
 # ============================================================================
-# Software Installation
-# ============================================================================
-
-# Installers: maps software name -> (verify_cmd, linux_install_cmd, windows_install_cmd)
-# verify_cmd: list of args; returns 0 if already installed
-# install_cmd: list of args to install
-SOFTWARE_INSTALLERS = {
-    "vscode": {
-        "verify": ["code", "--version"],
-        "linux": ["sudo", "snap", "install", "code", "--classic"],
-        "windows": ["winget", "install", "--id", "Microsoft.VisualStudioCode",
-                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
-    },
-    "flutter": {
-        "verify": ["flutter", "--version"],
-        "linux": ["sudo", "snap", "install", "flutter", "--classic"],
-        "windows": ["winget", "install", "--id", "Flutter.Flutter",
-                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
-    },
-    "arduino-cli": {
-        "verify": ["arduino-cli", "version"],
-        "linux": ["sudo", "snap", "install", "arduino-cli"],
-        "windows": ["winget", "install", "--id", "Arduino.ArduinoCLI",
-                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
-    },
-    "freecad": {
-        "verify": ["freecad", "--version"],
-        "linux": ["sudo", "snap", "install", "freecad"],
-        "windows": ["winget", "install", "--id", "FreeCAD.FreeCAD",
-                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
-    },
-    "kicad": {
-        "verify": None,  # checked via shutil.which to avoid launching GUI
-        "linux": ["bash", "-c",
-                  "sudo apt install -y software-properties-common && "
-                  "sudo add-apt-repository --yes ppa:kicad/kicad-9.0-releases && "
-                  "sudo apt update && sudo apt install -y kicad"],
-        "windows": ["winget", "install", "--id", "KiCad.KiCad",
-                     "-e", "--accept-package-agreements", "--accept-source-agreements"],
-    },
-}
-
-
-def is_software_installed(software_name):
-    """Check if a software is already installed using its verify command."""
-    entry = SOFTWARE_INSTALLERS.get(software_name)
-    if not entry:
-        return None  # unknown software
-
-    cmd = entry.get("verify")
-    if cmd is None:
-        # No safe CLI check — fall back to checking if binary exists in PATH
-        return shutil.which(software_name) is not None
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        return result.returncode == 0
-    except FileNotFoundError:
-        return False
-
-
-def install_single_software(software_name, os_type):
-    """Install a single software package using the appropriate command for the OS."""
-    entry = SOFTWARE_INSTALLERS.get(software_name)
-    if not entry:
-        print(f"  ⚠ Unknown software: {software_name}")
-        return False
-
-    print(f"  ── {software_name} ──")
-
-    installed = is_software_installed(software_name)
-    if installed is None:
-        print(f"       No verifier available, attempting install...")
-    elif installed:
-        print(f"       ✓ Already installed")
-        return True
-
-    if os_type == "linux":
-        cmd = entry.get("linux")
-    elif os_type == "windows":
-        cmd = entry.get("windows")
-    else:
-        print(f"       ✗ No installer for {os_type}")
-        return False
-
-    if not cmd:
-        print(f"       ✗ No installer configured")
-        return False
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"       ✗ Failed")
-        if result.stderr:
-            for line in result.stderr.strip().splitlines()[:5]:
-                print(f"         {line}")
-        return False
-
-    if os_type == "windows":
-        refresh_windows_path_from_system()
-
-    print(f"       ✓ Installed")
-    return True
-
-
-def _get_vscode_extensions(components):
-    """Return the list of VS Code extension IDs based on selected components."""
-    exts = [
-        "GitHub.vscode-pull-request-github",
-        "yzhang.markdown-all-in-one",
-        "zaaack.markdown-editor",
-        "ms-python.python",
-        "ms-vscode.cpptools",
-    ]
-    if "app" in components or "servidor" in components:
-        exts.extend(["dart-code.dart-code", "dart-code.flutter"])
-    if "firmware" in components:
-        exts.append("pioarduino.pioarduino-ide")
-    return exts
-
-
-def setup_vscode(components):
-    """Configure VS Code: install extensions per component and adjust settings."""
-    print("  Configuring VS Code...")
-    extensions = _get_vscode_extensions(components)
-
-    for ext in extensions:
-        result = subprocess.run(
-            ["code", "--install-extension", ext, "--force"],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            print(f"       ✓ Extension installed: {ext}")
-        else:
-            print(f"       ⚠ Extension failed: {ext}")
-
-    # Increase "Open Recent" list to 20 items
-    settings_path = Path.home() / ".config" / "Code" / "User" / "settings.json"
-    try:
-        if settings_path.exists():
-            settings = json.loads(settings_path.read_text())
-        else:
-            settings = {}
-            settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings["workbench.editor.limit.value"] = 20
-        settings_path.write_text(json.dumps(settings, indent=4))
-        print("       ✓ Open Recent increased to 20")
-    except Exception:
-        print("       ⚠ Could not update settings.json")
-
-
-def setup_flutter_platforms(os_type):
-    """Configure Flutter for all target platforms (web, linux/windows, android)."""
-    print("  Configuring Flutter platforms...")
-
-    # Enable web platform
-    subprocess.run(["flutter", "config", "--enable-web"], capture_output=True, text=True)
-
-    # Enable desktop platform
-    if platform.system() == "Linux":
-        subprocess.run(["flutter", "config", "--enable-linux-desktop"], capture_output=True, text=True)
-        # Install mesa-utils for eglinfo driver info
-        subprocess.run(["sudo", "apt", "install", "-y", "mesa-utils"], text=True,
-                       capture_output=True)
-    elif platform.system() == "Windows":
-        subprocess.run(["flutter", "config", "--enable-windows-desktop"], capture_output=True, text=True)
-
-    # Install Chromium so flutter devices shows web device
-    if os_type == "linux":
-        has_browser = (
-            shutil.which("chromium") or
-            shutil.which("chromium-browser") or
-            shutil.which("google-chrome")
-        )
-        if not has_browser:
-            print("  Installing Chromium for Flutter web...")
-            subprocess.run(["sudo", "snap", "install", "chromium"], text=True)
-
-        # Flutter expects google-chrome; snap installs chromium at /snap/bin/chromium
-        if not shutil.which("google-chrome") and shutil.which("chromium"):
-            print("  Creating google-chrome symlink for Flutter...")
-            subprocess.run(["sudo", "ln", "-sf", "/snap/bin/chromium",
-                            "/usr/local/bin/google-chrome"], text=True)
-
-    print("  Pre-caching Flutter artifacts for all platforms...")
-    result = subprocess.run(["flutter", "precache"], text=True)
-    if result.returncode == 0:
-        print("  ✓ Flutter artifacts cached")
-    else:
-        print("  ⚠ Flutter precache had warnings, continuing...")
-
-
-def _android_install_jdk():
-    """Install JDK for Android development."""
-    print("  Installing JDK for Android development...")
-    if platform.system() == "Linux":
-        subprocess.run(["sudo", "apt", "install", "-y", "default-jdk-headless"], text=True)
-    elif platform.system() == "Windows":
-        subprocess.run(["winget", "install", "--id", "Microsoft.OpenJDK.17",
-                         "-e", "--accept-package-agreements"], text=True)
-
-
-def _android_setup_kvm():
-    """Set up KVM for Android emulator acceleration on Linux."""
-    if platform.system() != "Linux":
-        return
-    print("  Setting up KVM for Android emulator acceleration...")
-    subprocess.run(["sudo", "apt", "install", "-y",
-                    "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
-                    "bridge-utils", "virt-manager"], text=True)
-    subprocess.run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"],
-                   capture_output=True, text=True)
-    if os.path.exists("/dev/kvm"):
-        print("  ✓ KVM available")
-    else:
-        print("  ⚠ /dev/kvm not found — emulators will run without acceleration (slow)")
-
-
-def _android_accept_licenses():
-    """Accept Android SDK licenses via Flutter."""
-    print("  Accepting Android SDK licenses...")
-    result = subprocess.run(["flutter", "doctor", "--android-licenses"],
-                            input="y\n" * 10, text=True, capture_output=True)
-    if result.returncode == 0:
-        print("  ✓ Android licenses accepted")
-    else:
-        print("  ⚠ Android license acceptance had issues, continuing...")
-
-
-def _android_ensure_sdkmanager(sdk_root):
-    """Ensure sdkmanager is installed and executable."""
-    sdkmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "sdkmanager")
-    if not os.path.exists(sdkmanager):
-        print("  Installing Android SDK cmdline-tools...")
-        _install_cmdline_tools(sdk_root)
-
-    if os.access(sdkmanager, os.X_OK):
-        return sdkmanager
-
-    if os.path.exists(sdkmanager):
-        print("  Fixing sdkmanager permissions...")
-        os.chmod(sdkmanager, 0o755)
-        for f in os.listdir(os.path.dirname(sdkmanager)):
-            fp = os.path.join(os.path.dirname(sdkmanager), f)
-            if os.path.isfile(fp):
-                os.chmod(fp, 0o755)
-        return sdkmanager
-
-    print("  ✗ sdkmanager not found after install attempt, skipping Android setup")
-    return None
-
-
-def _android_install_sdk(sdkmanager):
-    """Install Android platform tools and build tools via sdkmanager."""
-    print("  Installing Android platform tools and build tools...")
-    result = subprocess.run([sdkmanager, "--install",
-                             "platform-tools",
-                             "build-tools;36.0.0",
-                             "platforms;android-36",
-                             "platforms;android-34",
-                             "emulator"],
-                            text=True)
-    if result.returncode != 0:
-        print("  ⚠ sdkmanager install had issues, continuing...")
-
-
-def _android_create_avds(sdk_root):
-    """Create the two standard AVDs."""
-    _create_avd(sdk_root, "pixel_9", "android-36",
-                "Pixel_9_API_36", "Most recent API")
-    _create_avd(sdk_root, "pixel_8", "android-34",
-                "Pixel_8_API_34", "Most used API (Android 14)")
-
-
-def setup_android_sdk():
-    """Install Android SDK, accept licenses, create AVDs."""
-    _android_install_jdk()
-    _android_setup_kvm()
-    _android_accept_licenses()
-
-    sdk_root = _get_android_sdk_path()
-    if not sdk_root:
-        print("  ✗ Could not locate Android SDK")
-        return False
-
-    sdkmanager = _android_ensure_sdkmanager(sdk_root)
-    if not sdkmanager:
-        return False
-
-    _android_install_sdk(sdkmanager)
-    _android_create_avds(sdk_root)
-    return True
-
-
-def _get_android_sdk_path():
-    """Return the Android SDK root path."""
-    # Try to get from flutter doctor output
-    try:
-        result = subprocess.run(
-            ["flutter", "doctor", "-v"],
-            capture_output=True, text=True,
-        )
-        for line in result.stdout.splitlines():
-            if "Android SDK" in line:
-                path = line.split("at")[-1].strip()
-                if os.path.isdir(path):
-                    return path
-    except Exception:
-        pass
-
-    # Check common locations
-    candidates = [
-        os.environ.get("ANDROID_HOME"),
-        os.environ.get("ANDROID_SDK_ROOT"),
-        str(Path.home() / "Android" / "Sdk"),
-        str(Path.home() / "android" / "sdk"),
-    ]
-    for c in candidates:
-        if c and os.path.isdir(c):
-            return c
-    return str(Path.home() / "Android" / "Sdk")
-
-
-def _install_cmdline_tools(sdk_root):
-    """Download and install Android SDK command-line tools."""
-    tools_dir = Path(sdk_root) / "cmdline-tools"
-    tools_dir.mkdir(parents=True, exist_ok=True)
-
-    url = ("https://dl.google.com/android/repository/"
-           "commandlinetools-linux-11076708_latest.zip")
-    if platform.system() == "Windows":
-        url = ("https://dl.google.com/android/repository/"
-               "commandlinetools-win-11076708_latest.zip")
-
-    zip_path = tools_dir / "cmdline-tools.zip"
-    print(f"  Downloading Android cmdline-tools...")
-    try:
-        urllib.request.urlretrieve(url, zip_path)
-    except Exception as exc:
-        print(f"  ✗ Failed to download: {exc}")
-        return
-
-    print(f"  Extracting...")
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(tools_dir)
-    zip_path.unlink()
-
-    # Move to latest/ subdirectory as sdkmanager expects
-    (tools_dir / "latest").mkdir(exist_ok=True)
-    for item in (tools_dir / "cmdline-tools").iterdir():
-        if item.name != "latest":
-            shutil.move(str(item), str(tools_dir / "latest" / item.name))
-    (tools_dir / "cmdline-tools").rmdir()
-
-    # Fix permissions — extracted files lack execute bit
-    bin_dir = tools_dir / "latest" / "bin"
-    if bin_dir.exists():
-        for f in bin_dir.iterdir():
-            f.chmod(f.stat().st_mode | 0o111)
-
-
-def _create_avd(sdk_root, device, target, name, description):
-    """Create an Android Virtual Device."""
-    avdmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "avdmanager")
-    if not os.path.exists(avdmanager):
-        print(f"  ⚠ avdmanager not found, skipping AVD {name}")
-        return
-
-    # Check if AVD already exists
-    result = subprocess.run([avdmanager, "list", "avd", "-c"],
-                            capture_output=True, text=True)
-    if name in result.stdout:
-        print(f"  ✓ AVD {name} already exists")
-        return
-
-    print(f"  Creating AVD {name} ({description})...")
-    subprocess.run([
-        avdmanager, "create", "avd",
-        "--force",
-        "--device", device,
-        "--name", name,
-        "--package", f"system-images;{target};google_apis;x86_64",
-        "--tag", "google_apis",
-    ], text=True, capture_output=True)
-
-
-def install_modules(os_type, components, mode):
-    """Install software modules for the selected components.
-
-    Returns a dict with status per module.
-    """
-    software_list = get_software_for_components(components, mode)
-    if not software_list:
-        print("  No software modules to install.")
-        return {}
-
-    print(f"\nInstalling {len(software_list)} software modules...")
-    results = {}
-    needs_flutter_setup = False
-    needs_android = False
-
-    for sw in software_list:
-        if not install_single_software(sw, os_type):
-            print(f"  ✗ Aborting — {sw} failed to install")
-            return None
-        results[sw] = "OK"
-        if sw == "flutter":
-            needs_flutter_setup = True
-            if "app" in components:
-                needs_android = True
-
-    # Post-install: VS Code extensions and settings
-    if results.get("vscode") == "OK":
-        setup_vscode(components)
-
-    # Post-install: Flutter platform configuration
-    if needs_flutter_setup:
-        setup_flutter_platforms(os_type)
-
-    # Post-install: Android SDK + AVDs (only if app component is selected)
-    if needs_android:
-        print("  Setting up Android SDK and emulators...")
-        if not setup_android_sdk():
-            print("  ✗ Aborting — Android SDK setup failed")
-            return None
-
-    return results
-
-
-def print_installation_report(results):
-    """Print a formatted report of installation results."""
-    if results is None:
-        return
-    if not results:
-        return
-    print("\n--- Installation Report ---")
-    all_ok = True
-    for sw, status in sorted(results.items()):
-        icon = "✓" if status == "OK" else "✗"
-        print(f"  {icon} {sw}: {status}")
-        if status != "OK":
-            all_ok = False
-    if all_ok:
-        print("\n✓ All modules installed successfully!")
-    else:
-        print("\n⚠ Some modules failed. Review the output above.")
-
-
-# ============================================================================
-# Environment Update
-# ============================================================================
-
-def update_environment(os_type, managers):
-    """Update package lists (mandatory) and upgrade packages.
-
-    Linux:   sudo apt update && sudo apt upgrade -y
-    Windows: winget upgrade --all
-    """
-    if os_type == "linux" and "apt" in managers:
-        print("  Updating package lists (sudo apt update)...")
-        result = subprocess.run(["sudo", "apt", "update"], text=True)
-        if result.returncode == 0:
-            print("  ✓ Package lists updated")
-        else:
-            print("  ⚠ Package lists update returned warnings, continuing...")
-
-        print("  Upgrading system packages (sudo apt upgrade -y)...")
-        result = subprocess.run(["sudo", "apt", "upgrade", "-y"], text=True)
-        if result.returncode == 0:
-            print("  ✓ System packages upgraded")
-        else:
-            print("  ⚠ System upgrade had issues, continuing...")
-
-    elif os_type == "windows":
-        print("  Updating package lists (winget upgrade)...")
-        result = subprocess.run(
-            ["winget", "upgrade"],
-            text=True,
-        )
-        if result.returncode == 0:
-            print("  ✓ Package lists updated")
-        else:
-            print("  ⚠ Package lists update had issues, continuing...")
-
-        print("  Upgrading all packages...")
-        result = subprocess.run(
-            ["winget", "upgrade", "--all", "--accept-package-agreements",
-             "--accept-source-agreements"],
-            text=True,
-        )
-        if result.returncode == 0:
-            print("  ✓ Packages upgraded")
-        else:
-            print("  ⚠ Upgrade had issues, continuing...")
-    else:
-        print("  ⚠ No supported package manager found for automatic updates")
-        print("  (continuing without updates)")
-
-
-# ============================================================================
-# Main Flow
-# ============================================================================
-
-def main():
-    """Main entry point."""
-    print("=" * 60)
-    print("MakTrak Setup Script")
-    print("=" * 60)
-    
-    # Step 1: Detect OS
-    print("\n[1/8] Detecting operating system...")
-    os_type = detect_os()
-    print(f"✓ OS detected: {os_type}")
-
-    # Step 1b: Require administrator/sudo privileges
-    print("\n[1b/8] Checking privileges...")
-    privilege_state = ensure_admin_privileges(os_type)
-    if privilege_state == "relaunch":
-        sys.exit(0)
-    if not privilege_state:
-        sys.exit(1)
-    
-    # Step 2: Detect package managers
-    print("\n[2/8] Detecting package managers...")
-    managers = detect_package_managers(os_type)
-    if managers:
-        print(f"✓ Package managers found: {', '.join(managers.keys())}")
-    else:
-        print("✗ No package managers found")
-        sys.exit(1)
-    
-    # Step 3: Install version control tools (git + Sublime Merge)
-    print("\n[3/8] Installing version control tools...")
-    if not validate_git():
-        if not _install_package("git", os_type):
-            print("✗ Git is required but could not be installed")
-            sys.exit(1)
-        if not validate_git():
-            print("✗ Git is required but not available after installation attempt")
-            sys.exit(1)
-
-    if not find_sublime_merge_executable():
-        print("  Installing Sublime Merge...")
-        if not _install_package("sublime-merge", os_type):
-            print("  ⚠ Could not install Sublime Merge automatically. Continuing without it.")
-    
-    # Step 4: Select mode and components
-    print("\n[4/8] User configuration...")
-    mode = select_mode()
-    
-    if mode == "dev":
-        components = _select_components(DEV_MODULES, "Development")
-    else:
-        components = _select_components(PROD_MODULES, "Production")
-    
-    # Step 5: Update environment
-    print("\n[5/8] Updating environment...")
-    update_environment(os_type, managers)
-    
-    # Step 6: Confirm actions
-    print("\n[6/8] Confirmation...")
-    if not confirm_actions(mode, components, os_type, managers):
-        print("Installation cancelled.")
-        sys.exit(0)
-    
-    # Step 7: Download repositories (clone/update)
-    print("\n[7/8] Downloading repositories...")
-    
-    repos_to_clone = get_repositories_to_clone(mode, components)
-    if repos_to_clone:
-        credentials = get_github_credentials()
-        if credentials is None:
-            print("GitHub credentials are required for private repository access.")
-            sys.exit(1)
-        
-        if not configure_git_credential_helper():
-            sys.exit(1)
-    
-    if not clone_repositories(mode, components):
-        print("Some repositories failed to download. Review the output and try again.")
-        sys.exit(1)
-    
-    # Step 8: Install software modules
-    print("\n[8/8] Installing software modules...")
-    results = install_modules(os_type, components, mode)
-    if results is None:
-        sys.exit(1)
-    print_installation_report(results)
-
-    # Post-install extras: configure Xfce panel on Xubuntu
-    _configure_xfce_panel()
-
-    print("\n" + "=" * 60)
-    print("✓ MakTrak Setup completed successfully!")
-    print("=" * 60)
-    print("\nNext steps:")
-    print("- Validate installation (run validation commands)")
-    print("- Start developing!")
-
-
-# ============================================================================
-# Xfce Panel Configuration (Xubuntu)
+# XFCE PANEL (Xubuntu)
 # ============================================================================
 
 def _configure_xfce_panel():
-    """Configure Xfce panel: bottom bar with 2 rows (Xubuntu only)."""
+    """Configura o painel Xfce: barra inferior com 2 linhas."""
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
     if "xfce" not in desktop.lower():
         return
-
-    print("\nConfiguring Xfce panel...")
+    print("\nConfigurando painel Xfce...")
     result = subprocess.run(
         ["xfconf-query", "-c", "xfce4-panel", "-p", "/panels"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        print("  \u26a0 Could not query panel configuration")
         return
-
     panels = result.stdout.strip().splitlines()
     if not panels:
-        print("  \u26a0 No panels found")
         return
-
     panel_num = panels[0].strip()
+    subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-p",
+                    f"/panels/{panel_num}/position", "-s", "p=6;x=0;y=0"],
+                   capture_output=True)
+    subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-p",
+                    f"/panels/{panel_num}/nrows", "-s", "2"],
+                   capture_output=True)
+    subprocess.run(["xfce4-panel", "-r"], capture_output=True)
+    print("  \u2713 Painel configurado: barra inferior, 2 linhas")
 
-    subprocess.run([
-        "xfconf-query", "-c", "xfce4-panel", "-p",
-        f"/panels/{panel_num}/position",
-        "-s", "p=6;x=0;y=0",
-    ], capture_output=True, text=True)
 
-    subprocess.run([
-        "xfconf-query", "-c", "xfce4-panel", "-p",
-        f"/panels/{panel_num}/nrows", "-s", "2",
-    ], capture_output=True, text=True)
+# ============================================================================
+# ORQUESTRADOR
+# ============================================================================
 
-    subprocess.run(["xfce4-panel", "-r"], capture_output=True, text=True)
-    print("  \u2713 Panel configured: bottom bar, 2 rows")
+def main():
+    """MakTrak Setup - bootstrap + orquestrador."""
+    print("=" * 60)
+    print("MakTrak Setup")
+    print("=" * 60)
+
+    # 0. Registra este modulo para as derivadas poderem importar
+    register_module(Path(__file__))
+
+    # 1. Detecta OS, privilegios, package managers
+    require_admin()
+
+    # 2. Instala git se necessario (pre-requisito para clonar)
+    if not _validate_git():
+        print("Instalando git...")
+        os_type = platform.system().lower()
+        if os_type.startswith("linux"):
+            subprocess.run(["sudo", "apt", "install", "-y", "git"], text=True)
+        elif os_type == "windows":
+            subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
+                           "--accept-package-agreements", "--accept-source-agreements"],
+                          text=True)
+        if not _validate_git():
+            print("\u2717 Git e obrigatorio. Instale manualmente e tente novamente.")
+            sys.exit(1)
+
+    # 3. Atualiza ambiente
+    update_environment()
+
+    # 4. Interacao com usuario
+    mode = select_mode()
+    if mode == "dev":
+        components = select_components(DEV_MODULES, "Desenvolvimento")
+    else:
+        components = select_components(PROD_MODULES, "Producao")
+
+    if not confirm(mode, components):
+        print("Instalacao cancelada.")
+        sys.exit(0)
+
+    # 5. Credenciais GitHub + clone
+    repos = _get_repositories_to_clone(mode, components)
+    if repos:
+        branch = select_branch()
+        _setup_credentials()
+        if not _clone_repos(mode, components, branch):
+            print("Falha ao clonar repositorios.")
+            sys.exit(1)
+
+    # 6. Executa cada derivada
+    all_results = {}
+    for component in components:
+        repo_key = _get_repo_key(component)
+        repo_path = MOVINGMAK_REPOS_BASE / repo_key / "repo_setup.py"
+        if not repo_path.exists():
+            print(f"\n── {component} ──")
+            print("  \u26a0 repo_setup.py nao encontrado. Execute via bootstrap completo.")
+            continue
+        cls = load_derived(repo_path)
+        instance = cls()
+        print(f"\n── {component} ──")
+        instance.init()
+        instance.install()
+        instance.configure()
+        instance.test()
+        all_results[component] = instance.results
+
+    # 7. Relatorio consolidado
+    print_report(all_results)
+
+    # 8. Xfce panel (Xubuntu)
+    _configure_xfce_panel()
+
+    print("\n" + "=" * 60)
+    print("\u2713 MakTrak Setup concluido!")
+    print("=" * 60)
+
+
+def _get_repo_key(component):
+    """Mapeia componente para chave de repositorio."""
+    for repo_key, comps in DEV_REPOSITORIES.items():
+        if component in comps:
+            return repo_key
+    return component
 
 
 if __name__ == "__main__":
