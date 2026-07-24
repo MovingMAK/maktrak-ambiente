@@ -834,36 +834,6 @@ def _get_software_for_components(components, mode):
 
 
 # ============================================================================
-# XFCE PANEL (Xubuntu)
-# ============================================================================
-
-def _configure_xfce_panel():
-    """Configura o painel Xfce: barra inferior com 2 linhas."""
-    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-    if "xfce" not in desktop.lower():
-        return
-    print("\nConfigurando painel Xfce...")
-    result = subprocess.run(
-        ["xfconf-query", "-c", "xfce4-panel", "-p", "/panels"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return
-    panels = result.stdout.strip().splitlines()
-    if not panels:
-        return
-    panel_num = panels[0].strip()
-    subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-p",
-                    f"/panels/{panel_num}/position", "-s", "p=6;x=0;y=0"],
-                   capture_output=True)
-    subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-p",
-                    f"/panels/{panel_num}/nrows", "-s", "2"],
-                   capture_output=True)
-    subprocess.run(["xfce4-panel", "-r"], capture_output=True)
-    print("  ✅ Painel configurado: barra inferior, 2 linhas")
-
-
-# ============================================================================
 # ORQUESTRADOR
 # ============================================================================
 
@@ -941,8 +911,7 @@ def main():
     # 7. Relatorio consolidado
     _ui_print_report(all_results)
 
-    # 8. Xfce panel (Xubuntu)
-    _configure_xfce_panel()
+    # 8. Configuracao Xfce (Xubuntu) — removida: quebrava a barra de tarefas
 
     print("\n" + "=" * 60)
     print("✅ MakTrak Setup concluido!")
