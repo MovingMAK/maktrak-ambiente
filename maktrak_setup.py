@@ -442,29 +442,13 @@ class SetupBase(ABC):
 
     # ── VS Code ───────────────────────────────────────────────────────────
 
-    def install_extensions(self, exts):
+    def vscode_install_extensions(self, exts):
         """Instala extensoes do VS Code."""
-        for ext in exts:
-            result = self._run(["code", "--install-extension", ext, "--force"],
-                               capture_output=True)
-            if result.returncode == 0:
-                print(f"       \u2713 Extensao: {ext}")
-            else:
-                print(f"       \u26a0 Falha na extensao: {ext}")
+        _vscode_install_extensions(exts)
 
-    def set_setting(self, key, value):
+    def vscode_set_setting(self, key, value):
         """Ajusta uma configuracao do VS Code via settings.json."""
-        settings_path = Path.home() / ".config" / "Code" / "User" / "settings.json"
-        try:
-            if settings_path.exists():
-                settings = json.loads(settings_path.read_text())
-            else:
-                settings = {}
-                settings_path.parent.mkdir(parents=True, exist_ok=True)
-            settings[key] = value
-            settings_path.write_text(json.dumps(settings, indent=4))
-        except Exception as exc:
-            print(f"  \u26a0 Nao foi possivel atualizar settings.json: {exc}")
+        _vscode_set_setting(key, value)
 
     # ── Fases abstratas - a derivada implementa as 4 ──────────────────────
 
@@ -494,7 +478,7 @@ class SetupBase(ABC):
 # FUNCOES DO ORQUESTRADOR (standalone - nao estao na SetupBase)
 # ============================================================================
 
-def require_admin():
+def _sys_require_admin():
     """Requer privilegios de administrador/sudo no inicio da execucao."""
     os_type = platform.system().lower()
     if os_type == "windows":
@@ -523,7 +507,7 @@ def require_admin():
     print("\u2713 Privilegios OK")
 
 
-def update_environment():
+def _sys_update_environment():
     """Atualiza listas de pacotes (apt update / winget upgrade)."""
     os_type = platform.system().lower()
     if os_type.startswith("linux"):
@@ -538,7 +522,7 @@ def update_environment():
                         "--accept-package-agreements", "--accept-source-agreements"], text=True)
 
 
-def select_mode():
+def _ui_select_mode():
     """Solicita ao usuario selecionar modo dev ou prod."""
     while True:
         c = input("\nModo? (1=dev, 2=prod): ").strip()
@@ -549,7 +533,7 @@ def select_mode():
         print("Invalido. Digite 1 ou 2.")
 
 
-def select_components(items_dict, label):
+def _ui_select_components(items_dict, label):
     """Solicita ao usuario selecionar componentes."""
     categories = list(items_dict.keys())
     print(f"\n--- Selecionar componentes ({label}) ---")
@@ -570,7 +554,7 @@ def select_components(items_dict, label):
     return result
 
 
-def confirm(mode, components):
+def _ui_confirm(mode, components):
     """Exibe resumo e solicita confirmacao do usuario."""
     print(f"\n--- Resumo da Instalacao ---")
     print(f"Modo: {mode}")
@@ -587,13 +571,13 @@ def confirm(mode, components):
     return confirm in {"yes", ""}
 
 
-def select_branch():
+def _ui_select_branch():
     """Solicita ao usuario uma branch especifica (default: main)."""
     branch = input("Branch dos repositorios? (Enter = main): ").strip()
     return branch if branch else "main"
 
 
-def print_report(results):
+def _ui_print_report(results):
     """Exibe relatorio formatado dos resultados."""
     if not results:
         return
@@ -608,6 +592,58 @@ def print_report(results):
         print("\n\u2713 Todos os modulos instalados com sucesso!")
     else:
         print("\n\u26a0 Alguns modulos falharam.")
+
+
+def _vscode_install_extensions(exts):
+    """Instala extensoes do VS Code (standalone)."""
+    for ext in exts:
+        result = subprocess.run(
+            ["code", "--install-extension", ext, "--force"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"       \u2713 Extensao: {ext}")
+        else:
+            print(f"       \u26a0 Falha na extensao: {ext}")
+
+
+def _vscode_set_setting(key, value):
+    """Ajusta uma configuracao do VS Code via settings.json."""
+    settings_path = Path.home() / ".config" / "Code" / "User" / "settings.json"
+    try:
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+        else:
+            settings = {}
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings[key] = value
+        settings_path.write_text(json.dumps(settings, indent=4))
+    except Exception as exc:
+        print(f"  \u26a0 Nao foi possivel atualizar settings.json: {exc}")
+
+
+def _vscode_install_base():
+    """Instala extensoes VS Code universais (todos os ambientes)."""
+    _vscode_install_extensions([
+        # Markdown
+        "zaaack.markdown-editor",
+        "shd101wyy.markdown-preview-enhanced",
+        # Python
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        # C/C++
+        "ms-vscode.cpptools",
+        "xaver.clang-format",
+        # Git
+        "eamodio.gitlens",
+        "GitHub.vscode-pull-request-github",
+        # Copilot
+        "vizards.deepseek-v4-for-copilot",
+        "github.copilot-chat",
+        # TOML
+        "tamasfe.even-better-toml",
+    ])
+    _vscode_set_setting("workbench.editor.limit.value", 20)
 
 
 # ============================================================================
@@ -642,7 +678,7 @@ def load_derived(repo_setup_path):
 # GIT - PRIVADO DO ORQUESTRADOR
 # ============================================================================
 
-def _validate_git():
+def _git_validate():
     """Verifica se git esta disponivel."""
     try:
         result = subprocess.run(["git", "--version"], capture_output=True, text=True)
@@ -651,7 +687,7 @@ def _validate_git():
     return result.returncode == 0
 
 
-def _setup_credentials():
+def _git_setup_credentials():
     """Configura credenciais GitHub (token via store, env, ou prompt)."""
     store_path = Path.home() / ".git-credentials"
 
@@ -670,7 +706,7 @@ def _setup_credentials():
     username = os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER") or "git"
     if token:
         print("\u2713 Usando GITHUB_TOKEN do ambiente")
-        _write_git_credentials(username, token, store_path)
+        _git_write_credentials(username, token, store_path)
         return
 
     # Prompt interativo
@@ -680,14 +716,14 @@ def _setup_credentials():
     if not username or not token:
         print("\u2717 Credenciais necessarias para repositorios privados")
         sys.exit(1)
-    _write_git_credentials(username, token, store_path)
+    _git_write_credentials(username, token, store_path)
 
     # Configura git credential helper
     subprocess.run(["git", "config", "--global", "credential.helper", "store"],
                    capture_output=True, text=True)
 
 
-def _write_git_credentials(username, token, store_path):
+def _git_write_credentials(username, token, store_path):
     """Persiste credenciais no arquivo .git-credentials."""
     encoded_username = quote(username)
     encoded_token = quote(token)
@@ -696,7 +732,7 @@ def _write_git_credentials(username, token, store_path):
     store_path.chmod(0o600)
 
 
-def _clone_repos(mode, components, branch="main"):
+def _git_clone_repos(mode, components, branch="main"):
     """Clona ou atualiza os repositorios dos componentes selecionados."""
     repos = _get_repositories_to_clone(mode, components)
     if not repos:
@@ -707,12 +743,12 @@ def _clone_repos(mode, components, branch="main"):
         if not repo_url:
             print(f"\u2717 URL nao configurada para: {repo_name}")
             return False
-        if not _clone_one(repo_name, repo_url, branch):
+        if not _git_clone_one(repo_name, repo_url, branch):
             return False
     return True
 
 
-def _clone_one(repo_name, repo_url, branch="main"):
+def _git_clone_one(repo_name, repo_url, branch="main"):
     """Clona ou atualiza um repositorio em uma branch especifica."""
     dest = MOVINGMAK_REPOS_BASE / repo_name
     if not dest.exists():
@@ -720,10 +756,10 @@ def _clone_one(repo_name, repo_url, branch="main"):
         print(f"  Clonando {repo_name} ({branch})...")
         cmd = ["git", "clone", "--progress", "--branch", branch,
                repo_url, str(dest)]
-        result = _run_git_with_retry(cmd, repo_name)
+        result = _git_run_with_retry(cmd, repo_name)
         if result.returncode == 0:
             print(f"  \u2713 Clonado {repo_name} ({branch})")
-            _register_sublime_merge(dest)
+            _git_register_sublime_merge(dest)
             return True
         print(f"  \u2717 Falha ao clonar {repo_name}")
         return False
@@ -731,18 +767,18 @@ def _clone_one(repo_name, repo_url, branch="main"):
     # Troca para a branch desejada antes do pull
     subprocess.run(["git", "-C", str(dest), "checkout", branch],
                    capture_output=True, text=True)
-    result = _run_git_with_retry(
+    result = _git_run_with_retry(
         ["git", "-C", str(dest), "pull", "--force"], repo_name
     )
     if result.returncode == 0:
         print(f"  \u2713 Atualizado {repo_name} ({branch})")
-        _register_sublime_merge(dest)
+        _git_register_sublime_merge(dest)
         return True
     print(f"  \u2717 Falha ao atualizar {repo_name}")
     return False
 
 
-def _run_git_with_retry(args, repo_name):
+def _git_run_with_retry(args, repo_name):
     """Executa comando git com retry em caso de erro de autenticacao/rede."""
     for attempt in range(1, MAX_RETRIES + 1):
         result = subprocess.run(args, capture_output=True, text=True)
@@ -761,7 +797,7 @@ def _run_git_with_retry(args, repo_name):
     return result
 
 
-def _register_sublime_merge(repo_path):
+def _git_register_sublime_merge(repo_path):
     """Abre o repositorio no Sublime Merge (background)."""
     candidates = ["smerge", "sublime-merge"]
     if platform.system() == "Windows":
@@ -843,10 +879,10 @@ def main():
     register_module(Path(__file__))
 
     # 1. Detecta OS, privilegios, package managers
-    require_admin()
+    _sys_require_admin()
 
     # 2. Instala git se necessario (pre-requisito para clonar)
-    if not _validate_git():
+    if not _git_validate():
         print("Instalando git...")
         os_type = platform.system().lower()
         if os_type.startswith("linux"):
@@ -855,34 +891,38 @@ def main():
             subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
                            "--accept-package-agreements", "--accept-source-agreements"],
                           text=True)
-        if not _validate_git():
+        if not _git_validate():
             print("\u2717 Git e obrigatorio. Instale manualmente e tente novamente.")
             sys.exit(1)
 
     # 3. Atualiza ambiente
-    update_environment()
+    _sys_update_environment()
 
     # 4. Interacao com usuario
-    mode = select_mode()
+    mode = _ui_select_mode()
     if mode == "dev":
-        components = select_components(DEV_MODULES, "Desenvolvimento")
+        components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
     else:
-        components = select_components(PROD_MODULES, "Producao")
+        components = _ui_select_components(PROD_MODULES, "Producao")
 
-    if not confirm(mode, components):
+    if not _ui_confirm(mode, components):
         print("Instalacao cancelada.")
         sys.exit(0)
 
     # 5. Credenciais GitHub + clone
     repos = _get_repositories_to_clone(mode, components)
     if repos:
-        branch = select_branch()
-        _setup_credentials()
-        if not _clone_repos(mode, components, branch):
+        branch = _ui_select_branch()
+        _git_setup_credentials()
+        if not _git_clone_repos(mode, components, branch):
             print("Falha ao clonar repositorios.")
             sys.exit(1)
 
-    # 6. Executa cada derivada
+    # 6. Extensoes VS Code universais
+    print("\nInstalando extensoes VS Code universais...")
+    _vscode_install_base()
+
+    # 7. Executa cada derivada
     all_results = {}
     for component in components:
         repo_key = _get_repo_key(component)
@@ -901,7 +941,7 @@ def main():
         all_results[component] = instance.results
 
     # 7. Relatorio consolidado
-    print_report(all_results)
+    _ui_print_report(all_results)
 
     # 8. Xfce panel (Xubuntu)
     _configure_xfce_panel()

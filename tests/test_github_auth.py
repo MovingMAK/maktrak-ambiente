@@ -16,7 +16,7 @@ class GithubAuthTests(unittest.TestCase):
     def test_write_git_credentials(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = Path(tmpdir) / ".git-credentials"
-            maktrak_setup._write_git_credentials("octocat", "secret-token", store_path)
+            maktrak_setup._git_write_credentials("octocat", "secret-token", store_path)
             self.assertTrue(store_path.exists())
             content = store_path.read_text(encoding="utf-8")
             expected_user = quote("octocat")
@@ -26,7 +26,7 @@ class GithubAuthTests(unittest.TestCase):
 
     def test_validate_git(self):
         """Git deve estar disponivel no PATH (instalado no sistema)."""
-        result = maktrak_setup._validate_git()
+        result = maktrak_setup._git_validate()
         self.assertTrue(result)
 
 

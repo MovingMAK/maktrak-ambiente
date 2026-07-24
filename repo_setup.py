@@ -16,14 +16,8 @@ class AmbienteSetup(SetupBase):
         self.install_pkgs("vscode")
 
     def configure(self):
-        self.install_extensions([
-            "GitHub.vscode-pull-request-github",
-            "yzhang.markdown-all-in-one",
-            "zaaack.markdown-editor",
-            "ms-python.python",
-            "ms-vscode.cpptools",
-        ])
-        self.set_setting("workbench.editor.limit.value", 20)
+        # Extensoes universais sao instaladas pelo orquestrador
+        pass
 
     def test(self):
         self.results["vscode"] = self.assert_executable("code")
