@@ -159,7 +159,7 @@ class SetupBase(ABC):
         for name in names:
             entry = _PKG.get(name)
             if not entry:
-                print(f"  \u26a0 Pacote desconhecido: {name} - adicione ao _PKG")
+                print(f"  ⚠️ Pacote desconhecido: {name} - adicione ao _PKG")
                 continue
             pkgs.append((name, entry))
 
@@ -168,7 +168,7 @@ class SetupBase(ABC):
         elif self.os_type == "windows":
             self._install_windows(pkgs)
         else:
-            print(f"  \u26a0 SO nao suportado para install_pkgs: {self.os_type}")
+            print(f"  ⚠️ SO nao suportado para install_pkgs: {self.os_type}")
 
     def _install_linux(self, pkgs):
         """Instala pacotes no Linux, agrupando apt."""
@@ -179,7 +179,7 @@ class SetupBase(ABC):
         for name, entry in pkgs:
             info = entry.get("linux")
             if not info:
-                print(f"  \u26a0 {name}: sem entrada Linux no _PKG")
+                print(f"  ⚠️ {name}: sem entrada Linux no _PKG")
                 continue
             manager, extra, pkg_name = info
 
@@ -215,7 +215,7 @@ class SetupBase(ABC):
         for name, entry in pkgs:
             winget_id = entry.get("windows")
             if not winget_id:
-                print(f"  \u26a0 {name}: sem entrada Windows no _PKG")
+                print(f"  ⚠️ {name}: sem entrada Windows no _PKG")
                 continue
             self._run([
                 "winget", "install", "--id", winget_id, "-e",
@@ -323,11 +323,11 @@ class SetupBase(ABC):
             return
         avdmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "avdmanager")
         if not os.path.exists(avdmanager):
-            print(f"  \u26a0 avdmanager nao encontrado, ignorando AVD {name}")
+            print(f"  ⚠️ avdmanager nao encontrado, ignorando AVD {name}")
             return
         result = self._run([avdmanager, "list", "avd", "-c"], capture_output=True)
         if name in result.stdout:
-            print(f"  \u2713 AVD {name} ja existe")
+            print(f"  ✅ AVD {name} ja existe")
             return
         print(f"  Criando AVD {name} ({description})...")
         self._run([
@@ -495,16 +495,16 @@ def _sys_require_admin():
             rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", "powershell.exe",
                                                       params, None, 1)
             if rc > 32:
-                print("\u2713 Elevacao solicitada. Continuando na janela elevada.")
+                print("✅ Elevacao solicitada. Continuando na janela elevada.")
                 sys.exit(0)
-            print("\u2717 Nao foi possivel elevar privilegios.")
+            print("❌ Nao foi possivel elevar privilegios.")
             sys.exit(1)
     elif os_type.startswith("linux"):
         result = subprocess.run(["sudo", "-v"], text=True)
         if result.returncode != 0:
-            print("\u2717 Privilegios sudo necessarios.")
+            print("❌ Privilegios sudo necessarios.")
             sys.exit(1)
-    print("\u2713 Privilegios OK")
+    print("✅ Privilegios OK")
 
 
 def _sys_update_environment():
@@ -554,10 +554,11 @@ def _ui_select_components(items_dict, label):
     return result
 
 
-def _ui_confirm(mode, components):
+def _ui_confirm(mode, components, branch="main"):
     """Exibe resumo e solicita confirmacao do usuario."""
     print(f"\n--- Resumo da Instalacao ---")
     print(f"Modo: {mode}")
+    print(f"Branch: {branch}")
     print(f"Componentes: {', '.join(components)}")
     software = _get_software_for_components(components, mode)
     if software:
@@ -584,27 +585,27 @@ def _ui_print_report(results):
     print("\n--- Relatorio de Instalacao ---")
     all_ok = True
     for name, status in sorted(results.items()):
-        icon = "\u2713" if status else "\u2717"
+        icon = "✅" if status else "❌"
         print(f"  {icon} {name}: {'OK' if status else 'FALHA'}")
         if not status:
             all_ok = False
     if all_ok:
-        print("\n\u2713 Todos os modulos instalados com sucesso!")
+        print("\n✅ Todos os modulos instalados com sucesso!")
     else:
-        print("\n\u26a0 Alguns modulos falharam.")
+        print("\n⚠️ Alguns modulos falharam.")
 
 
 def _vscode_install_extensions(exts):
     """Instala extensoes do VS Code (standalone)."""
     for ext in exts:
         result = subprocess.run(
-            ["code", "--install-extension", ext, "--force"],
+            ["code", "--install-extension", ext],
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            print(f"       \u2713 Extensao: {ext}")
+            print(f"       ✅ Extensao: {ext}")
         else:
-            print(f"       \u26a0 Falha na extensao: {ext}")
+            print(f"       ⚠️ Falha na extensao: {ext}")
 
 
 def _vscode_set_setting(key, value):
@@ -619,7 +620,7 @@ def _vscode_set_setting(key, value):
         settings[key] = value
         settings_path.write_text(json.dumps(settings, indent=4))
     except Exception as exc:
-        print(f"  \u26a0 Nao foi possivel atualizar settings.json: {exc}")
+        print(f"  ⚠️ Nao foi possivel atualizar settings.json: {exc}")
 
 
 def _vscode_install_base():
@@ -651,13 +652,10 @@ def _vscode_install_base():
 # ============================================================================
 
 def register_module(path):
-    """Registra maktrak_setup.py em sys.modules para import pelas derivadas."""
+    """Registra este modulo em sys.modules para import pelas derivadas."""
     name = "maktrak_setup"
     if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[name] = mod
-        spec.loader.exec_module(mod)
+        sys.modules[name] = sys.modules["__main__"]
 
 
 def load_derived(repo_setup_path):
@@ -696,7 +694,7 @@ def _git_setup_credentials():
         try:
             line = store_path.read_text(encoding="utf-8").strip().splitlines()[0]
             if line.startswith("https://"):
-                print("\u2713 Credenciais GitHub encontradas no store")
+                print("✅ Credenciais GitHub encontradas no store")
                 return
         except Exception:
             pass
@@ -705,7 +703,7 @@ def _git_setup_credentials():
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     username = os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER") or "git"
     if token:
-        print("\u2713 Usando GITHUB_TOKEN do ambiente")
+        print("✅ Usando GITHUB_TOKEN do ambiente")
         _git_write_credentials(username, token, store_path)
         return
 
@@ -714,7 +712,7 @@ def _git_setup_credentials():
     username = input("GitHub username: ").strip()
     token = input("GitHub personal access token: ").strip()
     if not username or not token:
-        print("\u2717 Credenciais necessarias para repositorios privados")
+        print("❌ Credenciais necessarias para repositorios privados")
         sys.exit(1)
     _git_write_credentials(username, token, store_path)
 
@@ -741,7 +739,7 @@ def _git_clone_repos(mode, components, branch="main"):
     for repo_name in repos:
         repo_url = REPOSITORIES.get(repo_name)
         if not repo_url:
-            print(f"\u2717 URL nao configurada para: {repo_name}")
+            print(f"❌ URL nao configurada para: {repo_name}")
             return False
         if not _git_clone_one(repo_name, repo_url, branch):
             return False
@@ -758,10 +756,10 @@ def _git_clone_one(repo_name, repo_url, branch="main"):
                repo_url, str(dest)]
         result = _git_run_with_retry(cmd, repo_name)
         if result.returncode == 0:
-            print(f"  \u2713 Clonado {repo_name} ({branch})")
+            print(f"  ✅ Clonado {repo_name} ({branch})")
             _git_register_sublime_merge(dest)
             return True
-        print(f"  \u2717 Falha ao clonar {repo_name}")
+        print(f"  ❌ Falha ao clonar {repo_name}")
         return False
     print(f"  Repositorio ja existe: {dest}")
     # Troca para a branch desejada antes do pull
@@ -771,10 +769,10 @@ def _git_clone_one(repo_name, repo_url, branch="main"):
         ["git", "-C", str(dest), "pull", "--force"], repo_name
     )
     if result.returncode == 0:
-        print(f"  \u2713 Atualizado {repo_name} ({branch})")
+        print(f"  ✅ Atualizado {repo_name} ({branch})")
         _git_register_sublime_merge(dest)
         return True
-    print(f"  \u2717 Falha ao atualizar {repo_name}")
+    print(f"  ❌ Falha ao atualizar {repo_name}")
     return False
 
 
@@ -790,7 +788,7 @@ def _git_run_with_retry(args, repo_name):
                   "Connection timed out" in result.stderr)
         if attempt < MAX_RETRIES and (is_auth or is_net):
             delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
-            print(f"  \u26a0 Tentativa {attempt}/{MAX_RETRIES} - retentando em {delay}s...")
+            print(f"  ⚠️ Tentativa {attempt}/{MAX_RETRIES} - retentando em {delay}s...")
             time.sleep(delay)
         else:
             break
@@ -862,7 +860,7 @@ def _configure_xfce_panel():
                     f"/panels/{panel_num}/nrows", "-s", "2"],
                    capture_output=True)
     subprocess.run(["xfce4-panel", "-r"], capture_output=True)
-    print("  \u2713 Painel configurado: barra inferior, 2 linhas")
+    print("  ✅ Painel configurado: barra inferior, 2 linhas")
 
 
 # ============================================================================
@@ -892,27 +890,28 @@ def main():
                            "--accept-package-agreements", "--accept-source-agreements"],
                           text=True)
         if not _git_validate():
-            print("\u2717 Git e obrigatorio. Instale manualmente e tente novamente.")
+            print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
             sys.exit(1)
 
-    # 3. Atualiza ambiente
-    _sys_update_environment()
-
-    # 4. Interacao com usuario
+    # 3. Interacao com usuario (todas as perguntas primeiro)
     mode = _ui_select_mode()
     if mode == "dev":
         components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
     else:
         components = _ui_select_components(PROD_MODULES, "Producao")
 
-    if not _ui_confirm(mode, components):
+    repos = _get_repositories_to_clone(mode, components)
+    branch = _ui_select_branch() if repos else "main"
+
+    if not _ui_confirm(mode, components, branch):
         print("Instalacao cancelada.")
         sys.exit(0)
 
+    # 4. Acoes (so depois de todas as perguntas)
+    _sys_update_environment()
+
     # 5. Credenciais GitHub + clone
-    repos = _get_repositories_to_clone(mode, components)
     if repos:
-        branch = _ui_select_branch()
         _git_setup_credentials()
         if not _git_clone_repos(mode, components, branch):
             print("Falha ao clonar repositorios.")
@@ -928,9 +927,8 @@ def main():
         repo_key = _get_repo_key(component)
         repo_path = MOVINGMAK_REPOS_BASE / repo_key / "repo_setup.py"
         if not repo_path.exists():
-            print(f"\n── {component} ──")
-            print("  \u26a0 repo_setup.py nao encontrado. Execute via bootstrap completo.")
-            continue
+            print(f"\n❌ repo_setup.py nao encontrado em {repo_path}")
+            sys.exit(1)
         cls = load_derived(repo_path)
         instance = cls()
         print(f"\n── {component} ──")
@@ -947,15 +945,15 @@ def main():
     _configure_xfce_panel()
 
     print("\n" + "=" * 60)
-    print("\u2713 MakTrak Setup concluido!")
+    print("✅ MakTrak Setup concluido!")
     print("=" * 60)
 
 
 def _get_repo_key(component):
     """Mapeia componente para chave de repositorio."""
-    for repo_key, comps in DEV_REPOSITORIES.items():
-        if component in comps:
-            return repo_key
+    dirs = DEV_REPOSITORIES.get(component)
+    if dirs:
+        return dirs[0]
     return component
 
 
