@@ -23,7 +23,7 @@ python3 /tmp/maktrak_setup.py
 | Git + Sublime Merge (instalação, credenciais, clone) | ~300 | ✅ Interno da base (`_git_*`), usado só pelo orquestrador |
 | Interação com usuário (modo, componentes, confirmação) | ~100 | ✅ `ui_*` |
 | Update de ambiente (apt/winget) | ~60 | ✅ `update_environment()` |
-| Instalação de software (vscode, flutter, arduino-cli, etc.) | ~200 | ✅ `install_pkg()` + catálogo |
+| Instalação de software (vscode, flutter, arduino-cli, etc.) | ~200 | ✅ `install_pkgs()` + catálogo |
 | VS Code extensões e settings | ~60 | ✅ `vscode_*` |
 | Flutter platforms + Android SDK + AVDs | ~200 | ✅ `flutter_*`, `android_*` |
 | Xfce panel | ~40 | Permanece |
@@ -40,7 +40,7 @@ python3 /tmp/maktrak_setup.py
 | **Setup seletivo** — dev de firmware não precisa de Flutter/Android | Roda só `maktrak-fw/repo_setup.py` via orquestrador |
 | **Complexidade localizada** — derivadas com 30-60 linhas vs. monolito 1250 | Fácil de entender, difícil de quebrar |
 | **Flexibilidade futura** — servidores web e IA terão lógica complexa de config/testar | YAML falharia (não tem if/loop/assert), Python imperativo resolve |
-| **Reuso máximo** — a base acumula conhecimento e as derivadas ficam cada vez mais enxutas | `install_pkg("nginx")` resolve apt/snap/winget automaticamente |
+| **Reuso máximo** — a base acumula conhecimento e as derivadas ficam cada vez mais enxutas | `install_pkgs("nginx")` resolve apt/snap/winget automaticamente |
 
 ---
 
@@ -87,7 +87,7 @@ class SetupBase(ABC):
         self.results = {}
 
     def install_pkgs(self, *names: str): ...
-    def run(self, cmd: list): ...
+    def assert_executable(self, name: str) -> bool: ...
 
     # Fases — todas @abstractmethod; a derivada implementa
     # mesmo que vazia, para regularidade
@@ -119,27 +119,20 @@ class ServerSetup(SetupBase):
         self.flutter_build(REPO, "web")
 
     def test(self):
-        self.results["web"] = self._assert_http_ok("http://localhost:80")
+        self.results["nginx"] = self.assert_executable("nginx")
+        self.results["flutter"] = self.assert_executable("flutter")
 ```
 
 **Orquestrador** — registra o módulo e carrega a derivada:
 
 ```python
-import sys, importlib.util
-from pathlib import Path
-
 # Passo 1: registra o próprio módulo para a derivada encontrar
-mod = importlib.util.module_from_spec(importlib.util.spec_from_file_location(
-    "maktrak_setup", __file__))
-sys.modules["maktrak_setup"] = mod
+register_module(Path(__file__))
 
 # Passo 2: carrega a derivada
-spec = importlib.util.spec_from_file_location("mod", repo_path / "repo_setup.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)  # ← "from maktrak_setup import SetupBase" resolve aqui
+cls = load_derived(repo_path / "repo_setup.py")
 
 # Passo 3: instancia e executa
-cls = module.ServerSetup   # ou descobre dinamicamente
 instance = cls()
 instance.init()
 instance.install()
@@ -151,7 +144,7 @@ instance.test()
 
 É análogo a um `#include "maktrak_setup.h"` em C++ — a derivada precisa saber o que é `SetupBase` para herdar dele. O `register_module()` no orquestrador só garante que o módulo `maktrak_setup` esteja disponível para o Python resolver o import no momento da definição da classe.
 
-Fora isso, a herança é natural: `self.install_pkgs()`, `self.run()`, `self.results` funcionam sem nenhuma mágica.
+Fora isso, a herança é natural: `self.install_pkgs()`, `self.assert_executable()`, `self.results` funcionam sem nenhuma mágica.
 
 ### 3.4. Risco
 
@@ -162,9 +155,9 @@ Fora isso, a herança é natural: `self.install_pkgs()`, `self.run()`, `self.res
 
 ---
 
-## 4. Catálogo de serviços da classe base
+## 4. Catálogo de serviços (`maktrak_setup.py`)
 
-Tudo dentro do **mesmo arquivo** (`maktrak_setup.py`). A classe `SetupBase` reúne:
+Tudo dentro do **mesmo arquivo** (`maktrak_setup.py`):
 
 ### Núcleo
 
@@ -173,11 +166,20 @@ class SetupBase:
     os_type: str           # "linux" | "windows" | "macos"
     managers: dict         # {"snap": True, "apt": True, ...}
 
-    def require_admin(self): ...
-    def update_environment(self): ...
-    def run(self, cmd: list) -> subprocess.CompletedProcess: ...
-    def run_with_output(self, cmd: list) -> str: ...
-    def wait_for_port(self, port: int, timeout: int = 30): ...
+    def assert_executable(self, name: str) -> bool: ...
+    #   ↑ verifica se o binário existe e executa (`which` + `--version`)
+    #     preenche self.results[name] = True/False
+```
+
+### Funções do orquestrador (standalone, não na classe)
+
+```python
+def require_admin(): ...
+def update_environment(): ...
+def select_mode() -> str: ...
+def select_components(options: dict) -> list: ...
+def confirm(msg: str) -> bool: ...
+def print_report(results: dict): ...
 ```
 
 ### Instalação de software
@@ -252,15 +254,6 @@ A derivada chama `self.install_pkgs("kicad", "nginx", "postgresql")` — a base 
     def set_setting(self, key: str, value): ...
 ```
 
-### Interação com usuário
-
-```python
-    def select_mode(self) -> str: ...
-    def select_components(self, options: dict) -> list: ...
-    def confirm(self, msg: str) -> bool: ...
-    def print_report(self, results: dict): ...
-```
-
 ---
 
 ## 5. Estrutura final
@@ -284,23 +277,25 @@ maktrak_setup.py
   ├── _PKG = { ... }           ← catálogo de software conhecido
   ├── class SetupBase(ABC):     ← classe com infraestrutura + abstractmethod
   │     ├── __init__()          ← detecta OS, package managers
-  │     ├── require_admin()
-  │     ├── update_environment()
-  │     ├── install_pkg()
   │     ├── install_pkgs()
+  │     ├── assert_executable()
   │     ├── service_enable(), service_restart()
   │     ├── write_config(), append_line()
   │     ├── flutter_build(), flutter_test()
   │     ├── setup_android(), create_avd()
   │     ├── install_extensions(), set_setting()
-  │     ├── select_mode(), select_components(), confirm()
-  │     ├── print_report()
   │     ├── init()              ← @abstractmethod
   │     ├── install()           ← @abstractmethod
   │     ├── configure()         ← @abstractmethod
   │     └── test()              ← @abstractmethod
   │
-  ├── register_self()           ← sys.modules["maktrak_setup"] = módulo atual
+  ├── require_admin()           ← standalone (não na classe)
+  ├── update_environment()      ← standalone
+  ├── select_mode()             ← standalone
+  ├── select_components()       ← standalone
+  ├── confirm()                 ← standalone
+  ├── print_report()            ← standalone
+  ├── register_module()         ← sys.modules["maktrak_setup"] = módulo atual
   ├── load_derived()            ← importlib para repo_setup.py
   └── main()                    ← orquestrador
 ```
@@ -331,9 +326,8 @@ class SetupBase(ABC):
 
     def _detect_os(self) -> str: ...
     def _detect_package_managers(self) -> dict: ...
-    def install_pkg(self, name: str) -> bool: ...
     def install_pkgs(self, *names: str) -> bool: ...
-    def run(self, cmd: list): ...
+    def assert_executable(self, name: str) -> bool: ...
     def write_config(self, path, content): ...
     def service_enable(self, name): ...
     def flutter_build(self, path, platform): ...
@@ -349,6 +343,17 @@ class SetupBase(ABC):
     def configure(self):         ...
     @abstractmethod
     def test(self):              ...
+
+# ═══════════════════════════════════════════════════════════
+# FUNÇÕES DO ORQUESTRADOR (standalone — não estão na SetupBase)
+# ═══════════════════════════════════════════════════════════
+
+def require_admin(): ...
+def update_environment(): ...
+def select_mode() -> str: ...
+def select_components(options: dict) -> list: ...
+def confirm(msg: str) -> bool: ...
+def print_report(results: dict): ...
 
 # ═══════════════════════════════════════════════════════════
 # REGISTRO EM sys.modules
@@ -388,21 +393,19 @@ def main():
     # 0. Registra este módulo para as derivadas poderem importar
     register_module(Path(__file__))
 
-    base = SetupBase()
-
     # 1. Detecta OS, privilégios, package managers
-    base.ensure_admin(base.os_type)
-    base.update_environment()
+    require_admin()
+    update_environment()
 
     # 2. Interação com usuário
-    mode = base.select_mode()
-    components = base.select_components(...)
-    if not base.confirm(mode, components):
+    mode = select_mode()
+    components = select_components(...)
+    if not confirm(mode, components):
         return
 
     # 3. Clona os repositórios dos componentes
-    base._setup_credentials()
-    base._clone_repos(get_repos(mode, components))
+    _setup_credentials()
+    _clone_repos(get_repos(mode, components))
 
     # 4. Executa cada derivada
     all_results = {}
@@ -418,7 +421,7 @@ def main():
         all_results[component] = instance.results
 
     # 5. Relatório consolidado
-    base.print_report(all_results)
+    print_report(all_results)
 
 if __name__ == "__main__":
     main()
@@ -441,9 +444,8 @@ class HardwareSetup(SetupBase):
         pass  # nada a configurar
 
     def test(self):
-        r = self.run(["freecad", "--version"])
-        self.results["freecad"] = r.returncode == 0
-        self.results["kicad"] = shutil.which("kicad") is not None
+        self.results["freecad"] = self.assert_executable("freecad")
+        self.results["kicad"] = self.assert_executable("kicad")
 ```
 
 ---
@@ -485,10 +487,9 @@ class MeuSetup(SetupBase):
 ```
 
 - `init`, `install`, `configure`, `test` — todas `@abstractmethod`, todas obrigatórias
-- Para pacotes conhecidos: `self.install_pkgs("git", "vscode", ...)`
-- Para pacotes desconhecidos (fallback explícito): usar `self.run(["sudo", "apt", ...])`
+- `self.install_pkgs(...)` — instala pacotes pelo catálogo `_PKG`
+- `self.assert_executable("nome")` — verifica se o binário existe e executa (`which` + `--version`), retorna `bool`
 - `self.results` é um `dict` — preencher com `str → bool` em cada fase
-- `self.run(cmd)` executa e retorna `subprocess.CompletedProcess`
 - `self.os_type` é `"linux"`, `"windows"` ou `"macos"`
 - Não importar nada de `sys`, `os`, `subprocess` — usar os métodos da base
 
@@ -510,9 +511,11 @@ _PKG = {
 ```
 curl maktrak_setup.py
   → main()
-    → register_module()    sys.modules["maktrak_setup"] = self
-    → update_environment()
-    → select_mode() / select_components()
+    → register_module()     sys.modules["maktrak_setup"] = self
+    → require_admin()
+    → update_environment()  (standalone)
+    → select_mode() / select_components()  (standalone)
+    → confirm()
     → _setup_credentials() / _clone_repos()
     → for each component:
         load_derived(repo/repo_setup.py)
@@ -522,5 +525,5 @@ curl maktrak_setup.py
         instance.install()
         instance.configure()
         instance.test()
-    → print_report()
+    → print_report()        (standalone)
 ```
