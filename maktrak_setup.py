@@ -79,6 +79,7 @@ _PKG = {
     "kicad": {"linux": ('apt', 'ppa:kicad/kicad-9.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
     "nginx": {"linux": ('apt', '', 'nginx'), "windows": 'NGINX.NGINX'},
     "postgresql": {"linux": ('apt', '', 'postgresql'), "windows": 'PostgreSQL.PostgreSQL'},
+    "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
     "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
     "vscode": {"linux": ('snap', 'classic', 'code'), "windows": 'Microsoft.VisualStudioCode'},
 }
