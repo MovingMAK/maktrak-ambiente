@@ -140,7 +140,7 @@ class SetupBase(ABC):
             return subprocess.run(cmd, capture_output=capture_output, text=text,
                                   input=input_data, cwd=cwd)
         except Exception as exc:
-            print(f"  XX Falha ao executar: {' '.join(cmd)}")
+            print(f"  ❌ Falha ao executar: {' '.join(cmd)}")
             print(f"    {exc}")
             return subprocess.CompletedProcess(args=cmd, returncode=-1)
 
@@ -352,7 +352,7 @@ class SetupBase(ABC):
             return
         print("  Configurando KVM...")
         self._run(["sudo", "apt", "install", "-y",
-                   "qemu-kvm", "libvirt-daemon-system", "libvirt-clients",
+                   "qemu-system-x86", "libvirt-daemon-system", "libvirt-clients",
                    "bridge-utils", "virt-manager"])
         self._run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"])
 
@@ -379,13 +379,15 @@ class SetupBase(ABC):
         return None
 
     def _android_install_sdk(self, sdkmanager):
-        """Instala Android platform tools e build tools."""
-        print("  Instalando Android platform tools...")
+        """Instala Android SDK: platform tools, build tools, system images."""
+        print("  Instalando Android SDK...")
         self._run([sdkmanager, "--install",
                    "platform-tools",
                    "build-tools;36.0.0",
                    "platforms;android-36",
                    "platforms;android-34",
+                   "system-images;android-36;google_apis;x86_64",
+                   "system-images;android-34;google_apis;x86_64",
                    "emulator"])
 
     def _get_android_sdk_path(self):
@@ -578,21 +580,26 @@ def _ui_select_branch():
     return branch if branch else "main"
 
 
-def _ui_print_report(results):
-    """Exibe relatorio formatado dos resultados."""
-    if not results:
+def _ui_print_report(all_results):
+    """Exibe relatorio detalhado por componente e por teste."""
+    if not all_results:
         return
     print("\n--- Relatorio de Instalacao ---")
-    all_ok = True
-    for name, status in sorted(results.items()):
-        icon = "✅" if status else "❌"
-        print(f"  {icon} {name}: {'OK' if status else 'FALHA'}")
-        if not status:
-            all_ok = False
-    if all_ok:
+    overall_ok = True
+    for component, results in sorted(all_results.items()):
+        if not isinstance(results, dict):
+            continue
+        comp_ok = all(results.values()) if results else True
+        icon = "✅" if comp_ok else "❌"
+        print(f"\n  {icon} {component}")
+        for name, status in sorted(results.items()):
+            print(f"      {'✅' if status else '❌'} {name}: {'OK' if status else 'FALHA'}")
+        if not comp_ok:
+            overall_ok = False
+    if overall_ok:
         print("\n✅ Todos os modulos instalados com sucesso!")
     else:
-        print("\n⚠️ Alguns modulos falharam.")
+        print("\n⚠️ Alguns modulos falharam. Revise os detalhes acima.")
 
 
 def _vscode_install_extensions(exts):
@@ -902,10 +909,12 @@ def main():
         cls = load_derived(repo_path)
         instance = cls()
         print(f"\n── {component} ──")
-        instance.init()
-        instance.install()
-        instance.configure()
-        instance.test()
+        for phase in ["init", "install", "configure", "test"]:
+            try:
+                getattr(instance, phase)()
+            except Exception as exc:
+                print(f"  ❌ Fase {phase} falhou: {exc}")
+                instance.results[f"phase:{phase}"] = False
         all_results[component] = instance.results
 
     # 7. Relatorio consolidado
