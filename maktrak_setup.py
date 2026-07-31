@@ -621,6 +621,14 @@ class SetupBase(ABC):
 
     # ── Dependencias de build (usadas pelas derivadas) ────────────────────
 
+    def _venv_available(self):
+        """True se o modulo venv esta disponivel (pacote python3-venv)."""
+        try:
+            return subprocess.run([sys.executable, "-c", "import venv"],
+                                  capture_output=True).returncode == 0
+        except Exception:
+            return False
+
     def ensure_platformio(self):
         """Instala PlatformIO Core se o CLI `pio` nao estiver disponivel.
 
@@ -630,6 +638,10 @@ class SetupBase(ABC):
         if shutil.which("pio") or os.path.isfile(pio):
             print("  ✅ PlatformIO disponivel")
             return pio
+        # O instalador do PlatformIO cria um venv; garante o python3-venv
+        if not self._venv_available():
+            print("  Instalando python3-venv (necessario para o PlatformIO)...")
+            self._run(["sudo", "apt", "install", "-y", "python3-venv"])
         print("  Instalando PlatformIO Core...")
         url = ("https://raw.githubusercontent.com/platformio/"
                "platformio-core-installer/master/get-platformio.py")
@@ -646,6 +658,22 @@ class SetupBase(ABC):
             return pio
         print("  ⚠️ PlatformIO instalado, mas `pio` nao encontrado no PATH")
         return None
+
+    def platformio_prime(self, project_dir=None):
+        """Pre-download das dependencias do projeto PlatformIO (prime).
+
+        Roda `pio pkg install` no diretorio do projeto para baixar
+        plataforma, frameworks e toolchains ANTES do build. Isso separa o
+        download lento (fase de instalacao) da checagem de sucesso do
+        build (fase de teste), que passa a usar o cache e responde rapido.
+        Retorna True se os pacotes foram preparados.
+        """
+        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
+        if not os.path.isfile(pio) or not project_dir:
+            return False
+        print("  Preparando dependencias do PlatformIO (download antecipado)...")
+        result = self._run([pio, "pkg", "install"], cwd=str(project_dir))
+        return result.returncode == 0
 
     def ensure_pip_packages(self, *packages, venv_name="maktrak"):
         """Instala pacotes Python num venv isolado.
