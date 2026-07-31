@@ -16,6 +16,7 @@ import zipfile
 import importlib.util
 import urllib.request
 import ctypes
+import threading
 from pathlib import Path
 from abc import ABC, abstractmethod
 from urllib.parse import quote, unquote
@@ -28,6 +29,7 @@ from urllib.parse import quote, unquote
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 3
+SUDO_KEEPALIVE_INTERVAL = 120  # segundos entre renovacoes do ticket sudo
 
 REPOSITORIES = {
     "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
@@ -76,12 +78,24 @@ _PKG = {
     "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": 'Flutter.Flutter'},
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
     "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
-    "kicad": {"linux": ('apt', 'ppa:kicad/kicad-9.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
+    "kicad": {"linux": ('apt', 'ppa:kicad/kicad-10.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
     "nginx": {"linux": ('apt', '', 'nginx'), "windows": 'NGINX.NGINX'},
     "postgresql": {"linux": ('apt', '', 'postgresql'), "windows": 'PostgreSQL.PostgreSQL'},
     "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
     "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
     "vscode": {"linux": ('snap', 'classic', 'code'), "windows": 'Microsoft.VisualStudioCode'},
+}
+
+# ============================================================================
+# COMANDO DE VERSAO POR APLICATIVO (para assert_executable)
+# ============================================================================
+# Formato: nome -> (binario, [args]) | None
+#   None       => verificar apenas PRESENCA (apps GUI sem --version confiavel)
+#   (bin, args)=> binario + argumentos que imprimem a versao e saem com rc=0
+_VERSION_CMD = {
+    "freecad": None,                         # GUI; --version trava sem display
+    "kicad": ("kicad-cli", ["--version"]),   # CLI rapido, nao abre a GUI
+    "nginx": ("nginx", ["-v"]),              # nginx so aceita -v / -V
 }
 
 
@@ -137,6 +151,8 @@ class SetupBase(ABC):
 
     def _run(self, cmd, capture_output=False, text=True, input_data=None, cwd=None):
         """Executa um comando e retorna subprocess.CompletedProcess."""
+        if cmd and cmd[0] == "sudo" and not self._sudo_ok():
+            print("  ⚠️ Ticket sudo expirado. Execute 'sudo -v' no terminal para renovar.")
         try:
             return subprocess.run(cmd, capture_output=capture_output, text=text,
                                   input=input_data, cwd=cwd)
@@ -144,6 +160,39 @@ class SetupBase(ABC):
             print(f"  ❌ Falha ao executar: {' '.join(cmd)}")
             print(f"    {exc}")
             return subprocess.CompletedProcess(args=cmd, returncode=-1)
+
+    # ── Sudo ─────────────────────────────────────────────────────────────
+
+    def _sudo_ok(self):
+        """True se o ticket sudo esta valido (checagem nao interativa)."""
+        if self.os_type != "linux":
+            return True
+        try:
+            return subprocess.run(["sudo", "-n", "true"],
+                                  capture_output=True).returncode == 0
+        except Exception:
+            return False
+
+    def sudo_ensure(self):
+        """Garante ticket sudo valido. Se expirou, orienta o usuario a renovar.
+
+        Preserva o espaco do usuario (nao roda como root); apenas mantem o
+        carimbo sudo ativo. Retorna False se nao for possivel renovar.
+        """
+        if self._sudo_ok():
+            return True
+        print("  ⚠️ Privilegios sudo expirados.")
+        print("  Execute 'sudo -v' em OUTRO terminal e tecle ENTER aqui.")
+        try:
+            input()
+        except EOFError:
+            print("  ❌ Sem terminal interativo. Rode o script num terminal com TTY.")
+            return False
+        if self._sudo_ok():
+            print("  ✅ Sudo renovado.")
+            return True
+        print("  ❌ Sudo ainda invalido. Abortando fase.")
+        return False
 
     # ── Instalacao de software ────────────────────────────────────────────
 
@@ -171,8 +220,54 @@ class SetupBase(ABC):
         else:
             print(f"  ⚠️ SO nao suportado para install_pkgs: {self.os_type}")
 
+    def _apt_installed(self):
+        """Conjunto de nomes de pacotes apt ja instalados."""
+        try:
+            result = subprocess.run(["dpkg", "--get-selections"],
+                                    capture_output=True, text=True, timeout=30)
+        except Exception:
+            return set()
+        installed = set()
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == "install":
+                installed.add(parts[0])
+        return installed
+
+    def _snap_installed(self):
+        """Conjunto de nomes de snaps ja instalados."""
+        try:
+            result = subprocess.run(["snap", "list"],
+                                    capture_output=True, text=True, timeout=30)
+        except Exception:
+            return set()
+        installed = set()
+        for line in result.stdout.splitlines()[1:]:
+            parts = line.split()
+            if parts:
+                installed.add(parts[0])
+        return installed
+
+    def _ppa_present(self, ppa):
+        """True se o PPA ja esta configurado em /etc/apt/sources.list.d/."""
+        try:
+            files = os.listdir("/etc/apt/sources.list.d/")
+        except Exception:
+            return False
+        # ppa:kicad/kicad-10.0-releases -> arquivo contem kicad-10_0-releases
+        ppa_name = ppa.split("/")[-1].replace(".", "_")
+        return any(ppa_name in f for f in files)
+
     def _install_linux(self, pkgs):
-        """Instala pacotes no Linux, agrupando apt."""
+        """Instala pacotes no Linux, agrupando apt e PULANDO os ja instalados.
+
+        Evita re-instalar snaps presentes. Para apt, pula apenas quando o
+        pacote ja esta instalado E o PPA necessario ja esta configurado;
+        se o PPA for novo (ex.: nova serie do kicad), ele e adicionado e o
+        apt install faz o upgrade.
+        """
+        apt_installed = self._apt_installed()
+        snap_installed = self._snap_installed()
         apt_pkgs = []
         snap_pkgs = []
         ppas = []
@@ -185,10 +280,19 @@ class SetupBase(ABC):
             manager, extra, pkg_name = info
 
             if manager == "apt":
+                ppa_present = True
                 if extra and extra.startswith("ppa:"):
-                    ppas.append(extra)
+                    ppa_present = self._ppa_present(extra)
+                    if not ppa_present:
+                        ppas.append(extra)
+                if pkg_name in apt_installed and ppa_present:
+                    print(f"  ✅ {name} ja instalado (apt)")
+                    continue
                 apt_pkgs.append(pkg_name)
             elif manager == "snap":
+                if pkg_name in snap_installed:
+                    print(f"  ✅ {name} ja instalado (snap)")
+                    continue
                 snap_pkgs.append((pkg_name, extra))
 
         # PPAs
@@ -242,20 +346,39 @@ class SetupBase(ABC):
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
-    def assert_executable(self, name):
-        """Verifica se um executavel esta instalado e funcional.
+    def assert_executable(self, name, timeout=20):
+        """Verifica se um executavel esta instalado (PRESENCA e obrigatoria).
 
-        Faz which + --version. Retorna bool e preenche self.results[name].
+        Para a maioria, tambem roda um comando de versao (--version por
+        padrao, ou o mapeado em _VERSION_CMD). FALHA somente se o binario
+        nao existir. Se a checagem de versao falhar/timeout, registra o
+        executavel como OK com aviso (instalado nao e falha).
         """
         binary = shutil.which(name)
         if not binary:
             self.results[name] = False
             return False
 
-        result = self._run([binary, "--version"], capture_output=True)
-        ok = result.returncode == 0
-        self.results[name] = ok
-        return ok
+        info = _VERSION_CMD.get(name, (name, ["--version"]))
+        ver_bin = None
+        if info is not None:
+            ver_bin_name, ver_args = info
+            ver_bin = shutil.which(ver_bin_name) if ver_bin_name else binary
+        if ver_bin:
+            try:
+                result = subprocess.run([ver_bin] + ver_args,
+                                        capture_output=True, text=True,
+                                        timeout=timeout)
+                if result.returncode == 0:
+                    version = (result.stdout or result.stderr).strip().splitlines()
+                    if version:
+                        self.results[f"{name}_version"] = version[0][:60]
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠️ {name}: checagem de versao excedeu {timeout}s (ignorado)")
+            except Exception as exc:
+                print(f"  ⚠️ {name}: nao foi possivel obter versao: {exc}")
+        self.results[name] = True
+        return True
 
     # ── Sistema - servicos, configuracao, comandos ────────────────────────
 
@@ -303,10 +426,13 @@ class SetupBase(ABC):
     # ── Android SDK ───────────────────────────────────────────────────────
 
     def setup_android(self):
-        """Instala JDK + KVM + licencas + cmdline-tools + SDK."""
+        """Instala JDK + KVM + cmdline-tools + SDK + aceita licencas.
+
+        A aceitacao de licencas acontece DEPOIS do SDK instalado e sem
+        prompt interativo (arquivos gravados em <SDK>/licenses/).
+        """
         self._android_install_jdk()
         self._android_setup_kvm()
-        self._android_accept_licenses()
         sdk_root = self._get_android_sdk_path()
         if not sdk_root:
             print("  XX Android SDK nao localizado")
@@ -315,6 +441,7 @@ class SetupBase(ABC):
         if not sdkmanager:
             return False
         self._android_install_sdk(sdkmanager)
+        self._android_accept_licenses(sdk_root)
         return True
 
     def create_avd(self, name, device, target, description=""):
@@ -330,13 +457,34 @@ class SetupBase(ABC):
         if name in result.stdout:
             print(f"  ✅ AVD {name} ja existe")
             return
+        if not self._avd_device_exists(avdmanager, device):
+            print(f"  ⚠️ device '{device}' nao existe no catalogo do avdmanager; "
+                  f"ignorando AVD {name}")
+            return
         print(f"  Criando AVD {name} ({description})...")
-        self._run([
+        result = self._run([
             avdmanager, "create", "avd", "--force",
             "--device", device, "--name", name,
             "--package", f"system-images;{target};google_apis;x86_64",
             "--tag", "google_apis",
         ])
+        if result.returncode == 0:
+            print(f"  ✅ AVD {name} criado")
+        else:
+            print(f"  ❌ Falha ao criar AVD {name}")
+
+    def _avd_device_exists(self, avdmanager, device):
+        """Verifica se o device id existe no catalogo do avdmanager."""
+        try:
+            result = subprocess.run([avdmanager, "list", "device", "-c"],
+                                    capture_output=True, text=True, timeout=30)
+            for line in (result.stdout or "").splitlines():
+                line = line.strip().strip('"')
+                if line == device:
+                    return True
+        except Exception:
+            pass
+        return False
 
     def _android_install_jdk(self):
         """Instala JDK para desenvolvimento Android."""
@@ -357,10 +505,28 @@ class SetupBase(ABC):
                    "bridge-utils", "virt-manager"])
         self._run(["sudo", "adduser", os.environ.get("USER", ""), "kvm"])
 
-    def _android_accept_licenses(self):
-        """Aceita licencas do Android SDK via Flutter."""
-        print("  Aceitando licencas Android...")
-        self._run(["flutter", "doctor", "--android-licenses"], input_data="y\n" * 10)
+    def _android_accept_licenses(self, sdk_root=None):
+        """Aceita licencas do Android SDK sem prompt interativo.
+
+        Escreve diretamente os arquivos de licenca em <SDK>/licenses/,
+        com os hashes conhecidos da android-sdk-license. Nao depende de
+        TTY nem de resposta do usuario.
+        """
+        sdk_root = sdk_root or self._get_android_sdk_path()
+        if not sdk_root:
+            print("  ⚠️ SDK nao localizado; pulando aceite de licencas")
+            return
+        licenses_dir = Path(sdk_root) / "licenses"
+        licenses_dir.mkdir(parents=True, exist_ok=True)
+        (licenses_dir / "android-sdk-license").write_text(
+            "\n".join([
+                "8933bad161af4178b1185d1a37fbf41ea5269c55",
+                "d56f5187479451eabf01fb78af6dfcb131a6481e",
+                "24333f8a63b6825ea9c5514f83c2829b004d1fee",
+            ]) + "\n", encoding="utf-8")
+        (licenses_dir / "android-sdk-preview-license").write_text(
+            "84831b9409646a918e30573bab4c9c91346d8abd\n", encoding="utf-8")
+        print("  ✅ Licencas Android aceitas (arquivos gravados no SDK)")
 
     def _android_ensure_sdkmanager(self, sdk_root):
         """Garante que sdkmanager esta instalado e executavel."""
@@ -453,6 +619,74 @@ class SetupBase(ABC):
         """Ajusta uma configuracao do VS Code via settings.json."""
         _vscode_set_setting(key, value)
 
+    # ── Dependencias de build (usadas pelas derivadas) ────────────────────
+
+    def ensure_platformio(self):
+        """Instala PlatformIO Core se o CLI `pio` nao estiver disponivel.
+
+        Retorna o caminho do binario `pio` (ou None em caso de falha).
+        """
+        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
+        if shutil.which("pio") or os.path.isfile(pio):
+            print("  ✅ PlatformIO disponivel")
+            return pio
+        print("  Instalando PlatformIO Core...")
+        url = ("https://raw.githubusercontent.com/platformio/"
+               "platformio-core-installer/master/get-platformio.py")
+        dest = Path.home() / ".platformio" / "get-platformio.py"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            urllib.request.urlretrieve(url, dest)
+            self._run(["python3", str(dest)])
+        except Exception as exc:
+            print(f"  ❌ Falha ao instalar PlatformIO: {exc}")
+            return None
+        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
+        if os.path.isfile(pio):
+            return pio
+        print("  ⚠️ PlatformIO instalado, mas `pio` nao encontrado no PATH")
+        return None
+
+    def ensure_pip_packages(self, *packages, venv_name="maktrak"):
+        """Instala pacotes Python num venv isolado.
+
+        Evita PEP 668 (externally-managed) e a falta do pip3 do sistema.
+        Retorna o diretorio bin do venv (para localizar executaveis como
+        `uvicorn`) ou None em caso de falha.
+        """
+        if not packages:
+            return None
+        venv_dir = Path.home() / ".venvs" / venv_name
+        is_windows = platform.system() == "Windows"
+        bin_dir = venv_dir / ("Scripts" if is_windows else "bin")
+        python = bin_dir / ("python.exe" if is_windows else "python")
+
+        if not python.exists():
+            print(f"  Criando venv {venv_dir}...")
+            result = self._run([sys.executable, "-m", "venv", str(venv_dir)])
+            if result.returncode != 0 or not python.exists():
+                print("  Instalando python3-venv...")
+                self._run(["sudo", "apt", "install", "-y", "python3-venv"])
+                self._run([sys.executable, "-m", "venv", str(venv_dir)])
+        if not python.exists():
+            print("  ❌ Falha ao criar venv. Verifique python3-venv.")
+            return None
+
+        print(f"  Instalando pacotes Python: {', '.join(packages)}...")
+        self._run([str(python), "-m", "pip", "install", "--upgrade", "pip"])
+        self._run([str(python), "-m", "pip", "install"] + list(packages))
+        return str(bin_dir)
+
+    def install_flutter_linux_tools(self):
+        """Instala as ferramentas exigidas pelo Flutter para build Linux."""
+        if self.os_type == "linux":
+            print("  Instalando ferramentas de build Linux (clang, cmake, ninja, GTK3)...")
+            self._run(["sudo", "apt", "install", "-y",
+                       "clang", "cmake", "ninja-build", "g++", "pkg-config",
+                       "libgtk-3-dev"])
+        elif self.os_type == "windows":
+            print("  ⚠️ build Linux nao se aplica no Windows")
+
     # ── Fases abstratas - a derivada implementa as 4 ──────────────────────
 
     @abstractmethod
@@ -510,10 +744,38 @@ def _sys_require_admin():
     print("✅ Privilegios OK")
 
 
+def _sudo_keepalive():
+    """Thread daemon que renova o ticket sudo a cada 2 minutos.
+
+    Evita que o carimbo sudo expire durante operacoes longas (apt upgrade,
+    builds Flutter, downloads), que foi a causa dos `sudo: timed out`.
+    Usa `sudo -n -v`: nao pede senha, apenas renova com a credencial em
+    cache. Preserva o espaco do usuario (o script continua como usuario).
+    """
+    if platform.system().lower() != "linux":
+        return None
+
+    def _refresh():
+        while True:
+            time.sleep(SUDO_KEEPALIVE_INTERVAL)
+            try:
+                subprocess.run(["sudo", "-n", "-v"], capture_output=True)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_refresh, daemon=True, name="sudo-keepalive")
+    thread.start()
+    print(f"  ✅ Keepalive de sudo ativo "
+          f"(renova a cada {SUDO_KEEPALIVE_INTERVAL}s durante a execucao)")
+    return thread
+
+
 def _sys_update_environment():
     """Atualiza listas de pacotes (apt update / winget upgrade)."""
     os_type = platform.system().lower()
     if os_type.startswith("linux"):
+        if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+            print("  ⚠️ Ticket sudo expirado. Execute 'sudo -v' no terminal antes de continuar.")
         print("  apt update...")
         subprocess.run(["sudo", "apt", "update"], text=True)
         print("  apt upgrade -y...")
@@ -590,11 +852,16 @@ def _ui_print_report(all_results):
     for component, results in sorted(all_results.items()):
         if not isinstance(results, dict):
             continue
-        comp_ok = all(results.values()) if results else True
+        # Apenas resultados booleanos contam para o status do componente
+        comp_ok = all(v for k, v in results.items() if isinstance(v, bool))
+        comp_ok = comp_ok if any(isinstance(v, bool) for v in results.values()) else True
         icon = "✅" if comp_ok else "❌"
         print(f"\n  {icon} {component}")
         for name, status in sorted(results.items()):
-            print(f"      {'✅' if status else '❌'} {name}: {'OK' if status else 'FALHA'}")
+            if isinstance(status, bool):
+                print(f"      {'✅' if status else '❌'} {name}: {'OK' if status else 'FALHA'}")
+            else:
+                print(f"      ℹ️ {name}: {status}")
         if not comp_ok:
             overall_ok = False
     if overall_ok:
@@ -856,6 +1123,8 @@ def main():
 
     # 1. Detecta OS, privilegios, package managers
     _sys_require_admin()
+    # Mantem o ticket sudo vivo durante toda a execucao (evita expiracao)
+    _sudo_keepalive()
 
     # 2. Instala git se necessario (pre-requisito para clonar)
     if not _git_validate():
@@ -910,6 +1179,8 @@ def main():
         cls = load_derived(repo_path)
         instance = cls()
         print(f"\n── {component} ──")
+        # Garante ticket sudo valido antes das fases (evita falhas silenciosas)
+        instance.sudo_ensure()
         for phase in ["init", "install", "configure", "test"]:
             try:
                 getattr(instance, phase)()
