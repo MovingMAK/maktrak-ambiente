@@ -103,6 +103,30 @@ _VERSION_CMD = {
 # CLASS BASE - SetupBase(ABC)
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _windows_refresh_path():
+    """Atualiza o PATH do processo atual no Windows (le Machine + User).
+
+    Deve ser chamado apos comandos de instalacao (winget install/upgrade, etc.)
+    para que executaveis recem-instalados fiquem visiveis ao processo atual.
+    """
+    if platform.system() != "Windows":
+        return
+    cmd = (
+        "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
+        "[System.Environment]::GetEnvironmentVariable('Path','User')"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, text=True,
+        )
+    except Exception as exc:
+        print(f"  ⚠️ Falha ao ler PATH do Windows: {exc}")
+        return
+    if result.returncode == 0 and result.stdout.strip():
+        os.environ["PATH"] = result.stdout.strip()
+
+
 class SetupBase(ABC):
     """Classe base para scripts de setup derivados.
 
@@ -154,12 +178,18 @@ class SetupBase(ABC):
         if cmd and cmd[0] == "sudo" and not self._sudo_ok():
             print("  ⚠️ Ticket sudo expirado. Execute 'sudo -v' no terminal para renovar.")
         try:
-            return subprocess.run(cmd, capture_output=capture_output, text=text,
-                                  input=input_data, cwd=cwd)
+            result = subprocess.run(cmd, capture_output=capture_output, text=text,
+                                    input=input_data, cwd=cwd)
         except Exception as exc:
             print(f"  ❌ Falha ao executar: {' '.join(cmd)}")
             print(f"    {exc}")
             return subprocess.CompletedProcess(args=cmd, returncode=-1)
+        # Windows: comandos de instalacao alteram o PATH do processo.
+        # Renova o PATH para que executaveis recem-instalados (git, flutter,
+        # code, pio, ...) fiquem visiveis aos comandos seguintes.
+        if self.os_type == "windows" and self._cmd_may_change_path(cmd):
+            self._refresh_path()
+        return result
 
     # ── Sudo ─────────────────────────────────────────────────────────────
 
@@ -329,20 +359,19 @@ class SetupBase(ABC):
         self._refresh_path()
 
     @staticmethod
+    def _cmd_may_change_path(cmd):
+        """Heuristica: o comando pode ter alterado o PATH no Windows?"""
+        if not cmd:
+            return False
+        tokens = {str(c).lower() for c in cmd}
+        joined = " ".join(tokens)
+        # winget (install/upgrade) e instaladores em geral atualizam o PATH
+        return "winget" in joined or "install" in tokens or "upgrade" in tokens
+
+    @staticmethod
     def _refresh_path():
-        """Atualiza o PATH do processo atual no Windows."""
-        if platform.system() != "Windows":
-            return
-        cmd = (
-            "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
-            "[System.Environment]::GetEnvironmentVariable('Path','User')"
-        )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", cmd],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            os.environ["PATH"] = result.stdout.strip()
+        """Atualiza o PATH do processo atual no Windows (delega)."""
+        _windows_refresh_path()
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
