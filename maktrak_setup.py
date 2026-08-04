@@ -1194,6 +1194,17 @@ def _git_run_with_retry(args, repo_name):
             time.sleep(delay)
         else:
             break
+    # Falha definitiva: imprime o motivo real do git para ajudar no diagnostico
+    err_lines = [l for l in (result.stderr or "").splitlines() if l.strip()]
+    out_lines = [l for l in (result.stdout or "").splitlines() if l.strip()]
+    if err_lines:
+        print("  ⚠️ Detalhe do erro (git):")
+        for line in err_lines[-8:]:
+            print(f"    {line.strip()}")
+    elif out_lines:
+        print("  ⚠️ Saida (git):")
+        for line in out_lines[-8:]:
+            print(f"    {line.strip()}")
     return result
 
 
