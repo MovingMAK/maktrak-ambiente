@@ -989,6 +989,9 @@ def _ui_print_report(all_results):
 
 def _vscode_install_extensions(exts):
     """Instala extensoes do VS Code (standalone)."""
+    if not shutil.which("code"):
+        print("  ⚠️ `code` nao encontrado; pulando instalacao de extensoes")
+        return
     for ext in exts:
         result = subprocess.run(
             ["code", "--install-extension", ext],
@@ -1340,12 +1343,10 @@ def main():
             print("Falha ao clonar repositorios.")
             sys.exit(1)
 
-    # 6. Extensoes VS Code universais
-    print("\nInstalando extensoes VS Code universais...")
-    _vscode_install_base()
-
-    # 7. Executa cada derivada
-    all_results = {}
+    # 7. Executa as derivadas em ETAPAS (instalar -> extensoes -> configurar/testar).
+    #    Assim o software (incluindo VS Code) e instalado ANTES das extensoes,
+    #    e `code` ja esta disponivel quando as extensoes universais rodam.
+    instances = []
     for component in components:
         repo_key = _get_repo_key(component)
         repo_path = MOVINGMAK_REPOS_BASE / repo_key / "repo_setup.py"
@@ -1354,10 +1355,27 @@ def main():
             sys.exit(1)
         cls = load_derived(repo_path)
         instance = cls()
-        print(f"\n── {component} ──")
-        # Garante ticket sudo valido antes das fases (evita falhas silenciosas)
+        instances.append((component, instance))
+        print(f"\n── {component} (instalacao) ──")
+        # Garante ticket sudo valido antes de instalar
         instance.sudo_ensure()
-        for phase in ["init", "install", "configure", "test"]:
+        for phase in ["init", "install"]:
+            try:
+                getattr(instance, phase)()
+            except Exception as exc:
+                print(f"  ❌ Fase {phase} falhou: {exc}")
+                instance.results[f"phase:{phase}"] = False
+
+    # Extensoes VS Code universais (agora o VS Code ja esta instalado)
+    print("\nInstalando extensoes VS Code universais...")
+    _vscode_install_base()
+
+    # Configuracao e testes de cada derivada
+    all_results = {}
+    for component, instance in instances:
+        print(f"\n── {component} (configuracao/teste) ──")
+        instance.sudo_ensure()
+        for phase in ["configure", "test"]:
             try:
                 getattr(instance, phase)()
             except Exception as exc:
