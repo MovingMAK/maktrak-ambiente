@@ -23,6 +23,58 @@ from urllib.parse import quote, unquote
 
 
 # ============================================================================
+# IDENTIFICACAO E VERSAO
+# ============================================================================
+
+SETUP_NAME = "MakTrak Setup"
+SETUP_VERSION = "1.0.0"
+SETUP_DATE = "2026-08-04"
+
+# Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_CYAN = "\033[36m"
+ANSI_GREEN = "\033[32m"
+ANSI_YELLOW = "\033[33m"
+ANSI_MAGENTA = "\033[35m"
+ANSI_BLUE = "\033[34m"
+
+
+def _enable_ansi_windows():
+    """Habilita processamento VT (cores) no console do Windows."""
+    if platform.system() != "Windows":
+        return
+    try:
+        ctypes.windll.kernel32.SetConsoleMode(
+            ctypes.windll.kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+
+
+def _supports_color():
+    """True se a saida aceita ANSI (TTY, ou Windows com VT ativo)."""
+    if platform.system() == "Windows":
+        return True
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return True
+
+
+def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE):
+    """Imprime nome + versao + data do script, em destaque colorido quando possivel.
+
+    Usado no inicio do orquestrador (main) e no init() de cada repo_setup.py.
+    """
+    _enable_ansi_windows()
+    stamp = f"v{version} ({date})" if date else f"v{version}"
+    if _supports_color():
+        print(f"{ANSI_BOLD}{accent}== {name} {stamp} =={ANSI_RESET}")
+    else:
+        print(f"== {name} {stamp} ==")
+
+
+# ============================================================================
 # CONSTANTES
 # ============================================================================
 
@@ -1180,7 +1232,7 @@ def _get_software_for_components(components, mode):
 def main():
     """MakTrak Setup - bootstrap + orquestrador."""
     print("=" * 60)
-    print("MakTrak Setup")
+    print_banner(SETUP_NAME, SETUP_VERSION)
     print("=" * 60)
 
     # 0. Registra este modulo para as derivadas poderem importar

@@ -3,13 +3,18 @@ Setup MakTrak — Ambiente Base
 Componentes: VS Code, configurações de desktop (Xfce)
 """
 
-from maktrak_setup import SetupBase
+from maktrak_setup import SetupBase, print_banner, ANSI_CYAN
+
+SETUP_NAME = "MakTrak Setup — Ambiente"
+SETUP_VERSION = "1.0.0"
+SETUP_DATE = "2026-08-04"
 
 
 class AmbienteSetup(SetupBase):
     """Instalação e configuração do ambiente base MakTrak."""
 
     def init(self):
+        print_banner(SETUP_NAME, SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
         print("  Preparando ambiente base...")
 
     def install(self):
