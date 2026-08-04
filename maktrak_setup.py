@@ -12,9 +12,11 @@ import shutil
 import os
 import time
 import json
+import base64
 import zipfile
 import importlib.util
 import urllib.request
+import base64
 import ctypes
 import threading
 from pathlib import Path
@@ -1090,13 +1092,15 @@ def _git_setup_credentials():
          "credential.https://github.com.helper", "store"],
         capture_output=True, text=True)
 
-    # Tenta ler credenciais salvas
+    # Tenta ler credenciais salvas (valida formato github antes de usar)
     if store_path.exists():
         try:
             line = store_path.read_text(encoding="utf-8").strip().splitlines()[0]
-            if line.startswith("https://"):
-                print("✅ Credenciais GitHub encontradas no store")
-                return
+            if line.startswith("https://") and "@github.com" in line:
+                creds = line[len("https://"):].split("@")[0]
+                if ":" in creds:
+                    print("✅ Credenciais GitHub encontradas no store")
+                    return
         except Exception as exc:
             print(f"  ⚠️ Nao foi possivel ler credenciais salvas: {exc}")
 
@@ -1125,6 +1129,28 @@ def _git_write_credentials(username, token, store_path):
     store_path.write_text(f"https://{encoded_username}:{encoded_token}@github.com\n",
                           encoding="utf-8")
     store_path.chmod(0o600)
+
+
+def _git_auth_header():
+    """Retorna o header HTTP 'Authorization: Basic ...' para o GitHub.
+
+    Le a credencial do .git-credentials (escrita antes do clone) e a injeta
+    diretamente no comando git via http.extraHeader. Isso dispensa o
+    credential helper/GCM — resolvendo o 'could not read Username' no
+    Windows quando o helper nao esta configurado. Retorna None sem credencial.
+    """
+    store_path = Path.home() / ".git-credentials"
+    try:
+        line = store_path.read_text(encoding="utf-8").strip().splitlines()[0]
+        if line.startswith("https://") and "@github.com" in line:
+            creds = line[len("https://"):].split("@")[0]
+            user, _, token = creds.partition(":")
+            if user and token:
+                raw = f"{unquote(user)}:{unquote(token)}".encode("utf-8")
+                return "Authorization: Basic " + base64.b64encode(raw).decode("ascii")
+    except Exception:
+        pass
+    return None
 
 
 def _git_clone_repos(mode, components, branch="main"):
@@ -1180,8 +1206,15 @@ def _git_run_with_retry(args, repo_name):
     env = dict(os.environ)
     env["GCM_INTERACTIVE"] = "never"
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # Injeta autenticacao via header HTTP quando ha credencial no store.
+    # Dispensa o helper/GCM (as vezes nao configurado no Windows) e evita o
+    # erro "could not read Username" no clone de repos novos.
+    cmd = list(args)
+    auth = _git_auth_header()
+    if auth:
+        cmd = [args[0], "-c", f"http.extraHeader={auth}"] + list(args[1:])
     for attempt in range(1, MAX_RETRIES + 1):
-        result = subprocess.run(args, capture_output=True, text=True, env=env)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         if result.returncode == 0:
             return result
         is_auth = "403" in result.stderr or "Authentication failed" in result.stderr
