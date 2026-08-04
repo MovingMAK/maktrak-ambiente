@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.1.1"
+SETUP_VERSION = "1.1.3"
 SETUP_DATE = "2026-08-04"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -1106,9 +1106,55 @@ def _git_validate():
     return result.returncode == 0
 
 
+def _git_username_from_store(store_path):
+    """Extrai o username do .git-credentials, se possivel."""
+    try:
+        if store_path.exists():
+            line = store_path.read_text(encoding="utf-8").strip().splitlines()[0]
+            if line.startswith("https://") and "@" in line:
+                userinfo = line[len("https://"):].split("@")[0]
+                return unquote(userinfo.split(":", 1)[0])
+    except Exception:
+        pass
+    return ""
+
+
+def _git_ensure_identity(username=""):
+    """Garante user.name/user.email do git (necessario p/ pull/merge/commit).
+
+    Usa o username do GitHub (quando conhecido) para a identidade:
+      user.name  = <username>
+      user.email = <username>@users.noreply.github.com
+    Senao, usa um default generico do setup. Nao sobrescreve identidade
+    ja configurada. Grava em --global (configurado no sistema).
+    """
+    name = subprocess.run(["git", "config", "--global", "user.name"],
+                          capture_output=True, text=True).stdout.strip()
+    email = subprocess.run(["git", "config", "--global", "user.email"],
+                           capture_output=True, text=True).stdout.strip()
+    if not name:
+        default_name = username or "MakTrak Setup"
+        subprocess.run(["git", "config", "--global", "user.name", default_name],
+                       capture_output=True, text=True)
+        name = default_name
+    if not email:
+        base = (username or "maktrak").lower()
+        default_email = f"{base}@users.noreply.github.com"
+        subprocess.run(["git", "config", "--global", "user.email", default_email],
+                       capture_output=True, text=True)
+        email = default_email
+    print(f"  ✅ Identidade git: {name} <{email}>")
+
+
 def _git_setup_credentials():
     """Configura credenciais GitHub (token via store, env, ou prompt)."""
     store_path = Path.home() / ".git-credentials"
+
+    # Identidade git derivada do username do GitHub quando possivel; sem
+    # isso o pull/merge de repo existente falha em maquina nova.
+    username = (os.environ.get("GITHUB_USER") or os.environ.get("GIT_USER")
+                or _git_username_from_store(store_path) or "")
+    _git_ensure_identity(username)
 
     # Garante o helper `store` (e especificamente para o GitHub) em TODOS os
     # caminhos. Sem isso, no Windows o Git Credential Manager (GCM) fica
