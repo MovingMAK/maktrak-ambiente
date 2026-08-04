@@ -6,7 +6,7 @@ Componentes: VS Code, configurações de desktop (Xfce)
 from maktrak_setup import SetupBase, print_banner, ANSI_CYAN
 
 SETUP_NAME = "MakTrak Setup — Ambiente"
-SETUP_VERSION = "1.0.0"
+SETUP_VERSION = "1.0.1"
 SETUP_DATE = "2026-08-04"
 
 

@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.0.0"
+SETUP_VERSION = "1.1.0"
 SETUP_DATE = "2026-08-04"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
