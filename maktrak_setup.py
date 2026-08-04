@@ -1191,7 +1191,21 @@ def main():
     # Mantem o ticket sudo vivo durante toda a execucao (evita expiracao)
     _sudo_keepalive()
 
-    # 2. Instala git se necessario (pre-requisito para clonar)
+    # 2. Interacao com usuario (todas as perguntas primeiro)
+    mode = _ui_select_mode()
+    if mode == "dev":
+        components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
+    else:
+        components = _ui_select_components(PROD_MODULES, "Producao")
+
+    repos = _get_repositories_to_clone(mode, components)
+    branch = _ui_select_branch() if repos else "main"
+
+    if not _ui_confirm(mode, components, branch):
+        print("Instalacao cancelada.")
+        sys.exit(0)
+
+    # 3. Garante git (pre-requisito para o credential helper e o clone)
     if not _git_validate():
         print("Instalando git...")
         os_type = platform.system().lower()
@@ -1206,26 +1220,16 @@ def main():
             print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
             sys.exit(1)
 
-    # 3. Interacao com usuario (todas as perguntas primeiro)
-    mode = _ui_select_mode()
-    if mode == "dev":
-        components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
-    else:
-        components = _ui_select_components(PROD_MODULES, "Producao")
-
-    repos = _get_repositories_to_clone(mode, components)
-    branch = _ui_select_branch() if repos else "main"
-
-    if not _ui_confirm(mode, components, branch):
-        print("Instalacao cancelada.")
-        sys.exit(0)
-
-    # 4. Acoes (so depois de todas as perguntas)
-    _sys_update_environment()
-
-    # 5. Credenciais GitHub + clone
+    # 4. Credenciais GitHub (todos os dados do usuario obtidos primeiro)
     if repos:
         _git_setup_credentials()
+
+    # 5. Atualizacao do sistema (apt upgrade / winget upgrade) — somente
+    #    depois de obter todos os dados do usuario, em todos os sistemas
+    _sys_update_environment()
+
+    # 6. Clone dos repositorios
+    if repos:
         if not _git_clone_repos(mode, components, branch):
             print("Falha ao clonar repositorios.")
             sys.exit(1)
