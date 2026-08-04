@@ -231,6 +231,13 @@ class SetupBase(ABC):
         """Executa um comando e retorna subprocess.CompletedProcess."""
         if cmd and cmd[0] == "sudo" and not self._sudo_ok():
             print("  ⚠️ Ticket sudo expirado. Execute 'sudo -v' no terminal para renovar.")
+        # Windows: comandos como `code`/`flutter` sao .cmd/.bat. Resolver o
+        # caminho completo faz o subprocess executa-los via cmd.exe; por nome
+        # puro o CreateProcess procura so .exe e falha com WinError 2.
+        if self.os_type == "windows" and cmd and "/" not in cmd[0] and "\\" not in cmd[0]:
+            resolved = shutil.which(cmd[0])
+            if resolved:
+                cmd = [resolved] + list(cmd[1:])
         try:
             result = subprocess.run(cmd, capture_output=capture_output, text=text,
                                     input=input_data, cwd=cwd)
@@ -763,34 +770,41 @@ class SetupBase(ABC):
         result = self._run([pio, "pkg", "install"], cwd=str(project_dir))
         return result.returncode == 0
 
-    def ensure_pip_packages(self, *packages, venv_name="maktrak"):
+    def ensure_pip_packages(self, *packages, venv_name="maktrak", python=None):
         """Instala pacotes Python num venv isolado.
 
         Evita PEP 668 (externally-managed) e a falta do pip3 do sistema.
+        `python` permite usar um interpretador especifico (ex.: Python 3.12)
+        quando o pacote nao suporta o Python do sistema (ex.: open-webui).
         Retorna o diretorio bin do venv (para localizar executaveis como
-        `uvicorn`) ou None em caso de falha.
+        `uvicorn`) ou None em caso de falha (pip nao instalou com sucesso).
         """
         if not packages:
             return None
+        python = python or sys.executable
         venv_dir = Path.home() / ".venvs" / venv_name
         is_windows = platform.system() == "Windows"
         bin_dir = venv_dir / ("Scripts" if is_windows else "bin")
-        python = bin_dir / ("python.exe" if is_windows else "python")
+        venv_py = bin_dir / ("python.exe" if is_windows else "python")
 
-        if not python.exists():
-            print(f"  Criando venv {venv_dir}...")
-            result = self._run([sys.executable, "-m", "venv", str(venv_dir)])
-            if result.returncode != 0 or not python.exists():
+        if not venv_py.exists():
+            print(f"  Criando venv {venv_dir} (python: {python})...")
+            result = self._run([python, "-m", "venv", str(venv_dir)])
+            if result.returncode != 0 or not venv_py.exists():
                 print("  Instalando python3-venv...")
                 self._run(["sudo", "apt", "install", "-y", "python3-venv"])
-                self._run([sys.executable, "-m", "venv", str(venv_dir)])
-        if not python.exists():
+                self._run([python, "-m", "venv", str(venv_dir)])
+        if not venv_py.exists():
             print("  ❌ Falha ao criar venv. Verifique python3-venv.")
             return None
 
         print(f"  Instalando pacotes Python: {', '.join(packages)}...")
-        self._run([str(python), "-m", "pip", "install", "--upgrade", "pip"])
-        self._run([str(python), "-m", "pip", "install"] + list(packages))
+        self._run([str(venv_py), "-m", "pip", "install", "--upgrade", "pip"])
+        result = self._run([str(venv_py), "-m", "pip", "install"] + list(packages))
+        if result.returncode != 0:
+            print(f"  ⚠️ Falha ao instalar pacotes no venv '{venv_name}': "
+                  f"{', '.join(packages)} (pip rc={result.returncode})")
+            return None
         return str(bin_dir)
 
     def install_flutter_linux_tools(self):
@@ -989,12 +1003,15 @@ def _ui_print_report(all_results):
 
 def _vscode_install_extensions(exts):
     """Instala extensoes do VS Code (standalone)."""
-    if not shutil.which("code"):
+    # Resolve o caminho completo do `code`: no Windows ele e `code.cmd`
+    # (batch); por nome puro o CreateProcess procura so `code.exe` e falha.
+    code_bin = shutil.which("code")
+    if not code_bin:
         print("  ⚠️ `code` nao encontrado; pulando instalacao de extensoes")
         return
     for ext in exts:
         result = subprocess.run(
-            ["code", "--install-extension", ext],
+            [code_bin, "--install-extension", ext],
             capture_output=True, text=True,
         )
         if result.returncode == 0:
@@ -1053,13 +1070,22 @@ def register_module(path):
         sys.modules[name] = sys.modules["__main__"]
 
 
-def load_derived(repo_setup_path):
-    """Carrega repo_setup.py e retorna a classe derivada de SetupBase."""
+def load_derived(repo_setup_path, component=None):
+    """Carrega repo_setup.py e retorna a classe derivada de SetupBase.
+
+    Se a derivada expõe SETUP_CLASSES (mapa componente -> classe), usa a
+    classe correspondente ao componente. Isso evita que um repo_setup.py com
+    varias classes (ex.: servidores: ServerSetup + IaSetup) pegue a classe
+    errada por ordem alfabetica. Senao, retorna a primeira subclasse.
+    """
     spec = importlib.util.spec_from_file_location(
         f"repo_{repo_setup_path.parent.name}", repo_setup_path
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    cls_map = getattr(module, "SETUP_CLASSES", None)
+    if component and isinstance(cls_map, dict) and component in cls_map:
+        return cls_map[component]
     for attr_name in dir(module):
         obj = getattr(module, attr_name)
         if isinstance(obj, type) and issubclass(obj, SetupBase) and obj is not SetupBase:
@@ -1353,7 +1379,7 @@ def main():
         if not repo_path.exists():
             print(f"\n❌ repo_setup.py nao encontrado em {repo_path}")
             sys.exit(1)
-        cls = load_derived(repo_path)
+        cls = load_derived(repo_path, component)
         instance = cls()
         instances.append((component, instance))
         print(f"\n── {component} (instalacao) ──")
@@ -1398,7 +1424,12 @@ def _get_repo_key(component):
     dirs = DEV_REPOSITORIES.get(component)
     if dirs:
         return dirs[0]
-    return component
+    # Modo prod: servidor-prod e ia usam a config do repo servidores
+    PROD_REPOSITORIES = {
+        "servidor-prod": "servidores",
+        "ia": "servidores",
+    }
+    return PROD_REPOSITORIES.get(component, component)
 
 
 if __name__ == "__main__":
