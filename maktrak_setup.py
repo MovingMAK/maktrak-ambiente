@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.1.0"
+SETUP_VERSION = "1.1.1"
 SETUP_DATE = "2026-08-04"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -97,7 +97,7 @@ DEV_MODULES = {
     "ambiente":   ["vscode"],
     "mecanica":   ["freecad"],
     "eletronica": ["kicad"],
-    "firmware":   ["arduino-cli", "vscode"],
+    "firmware":   ["vscode"],
     "servidor":   ["vscode", "flutter"],
     "app":        ["vscode", "flutter"],
 }
@@ -127,7 +127,6 @@ PROD_MODULES = {
 #   Windows: "<winget-id>"  (string)
 
 _PKG = {
-    "arduino-cli": {"linux": ('snap', '', 'arduino-cli'), "windows": 'Arduino.ArduinoCLI'},
     "chromium": {"linux": ('snap', '', 'chromium'), "windows": ""},
     "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": 'Flutter.Flutter'},
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},

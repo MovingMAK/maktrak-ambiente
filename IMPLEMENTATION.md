@@ -68,7 +68,6 @@ Requisitos e restrições
    - Windows: instalação via `winget`.
    - Programas individuais:
      - **vscode**: `snap install code --classic` (Linux) / `winget install Microsoft.VisualStudioCode` (Windows)
-     - **arduino-cli**: `snap install arduino-cli` (Linux) / `winget install Arduino.ArduinoCLI` (Windows)
      - **freecad**: `snap install freecad` (Linux) / `winget install FreeCAD.FreeCAD` (Windows)
      - **kicad**: `snap install kicad` (Linux) / `winget install KiCad.KiCad` (Windows)
      - **flutter**: `snap install flutter --classic` (Linux) / `winget install Flutter.Flutter` (Windows)
