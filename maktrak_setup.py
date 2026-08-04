@@ -200,7 +200,8 @@ class SetupBase(ABC):
         try:
             return subprocess.run(["sudo", "-n", "true"],
                                   capture_output=True).returncode == 0
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao checar sudo: {exc}")
             return False
 
     def sudo_ensure(self):
@@ -255,7 +256,8 @@ class SetupBase(ABC):
         try:
             result = subprocess.run(["dpkg", "--get-selections"],
                                     capture_output=True, text=True, timeout=30)
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao listar pacotes apt: {exc}")
             return set()
         installed = set()
         for line in result.stdout.splitlines():
@@ -269,7 +271,8 @@ class SetupBase(ABC):
         try:
             result = subprocess.run(["snap", "list"],
                                     capture_output=True, text=True, timeout=30)
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao listar snaps: {exc}")
             return set()
         installed = set()
         for line in result.stdout.splitlines()[1:]:
@@ -282,7 +285,8 @@ class SetupBase(ABC):
         """True se o PPA ja esta configurado em /etc/apt/sources.list.d/."""
         try:
             files = os.listdir("/etc/apt/sources.list.d/")
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao listar PPAs: {exc}")
             return False
         # ppa:kicad/kicad-10.0-releases -> arquivo contem kicad-10_0-releases
         ppa_name = ppa.split("/")[-1].replace(".", "_")
@@ -511,8 +515,8 @@ class SetupBase(ABC):
                 line = line.strip().strip('"')
                 if line == device:
                     return True
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao listar devices do AVD: {exc}")
         return False
 
     def _android_install_jdk(self):
@@ -595,8 +599,8 @@ class SetupBase(ABC):
                     path = line.split("at")[-1].strip()
                     if os.path.isdir(path):
                         return path
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao detectar Android SDK via flutter doctor: {exc}")
         candidates = [
             os.environ.get("ANDROID_HOME"),
             os.environ.get("ANDROID_SDK_ROOT"),
@@ -655,7 +659,8 @@ class SetupBase(ABC):
         try:
             return subprocess.run([sys.executable, "-c", "import venv"],
                                   capture_output=True).returncode == 0
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao checar modulo venv: {exc}")
             return False
 
     def ensure_platformio(self):
@@ -778,7 +783,8 @@ def _sys_require_admin():
     if os_type == "windows":
         try:
             is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
-        except Exception:
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao checar privilegios de admin: {exc}")
             is_admin = False
         if not is_admin:
             print("Privilegios de administrador necessarios. Solicitando elevacao...")
@@ -817,8 +823,8 @@ def _sudo_keepalive():
             time.sleep(SUDO_KEEPALIVE_INTERVAL)
             try:
                 subprocess.run(["sudo", "-n", "-v"], capture_output=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"  ⚠️ Keepalive sudo falhou: {exc}")
 
     thread = threading.Thread(target=_refresh, daemon=True, name="sudo-keepalive")
     thread.start()
@@ -842,6 +848,7 @@ def _sys_update_environment():
         subprocess.run(["winget", "upgrade"], text=True)
         subprocess.run(["winget", "upgrade", "--all",
                         "--accept-package-agreements", "--accept-source-agreements"], text=True)
+        _windows_refresh_path()
 
 
 def _ui_select_mode():
@@ -872,7 +879,7 @@ def _ui_select_components(items_dict, label):
             if 0 <= idx < len(categories):
                 result.append(categories[idx])
         except ValueError:
-            pass
+            print(f"  ⚠️ Entrada invalida ignorada: {c!r}")
     return result
 
 
@@ -1013,6 +1020,7 @@ def _git_validate():
     try:
         result = subprocess.run(["git", "--version"], capture_output=True, text=True)
     except FileNotFoundError:
+        print("  ⚠️ git nao encontrado no PATH")
         return False
     return result.returncode == 0
 
@@ -1028,8 +1036,8 @@ def _git_setup_credentials():
             if line.startswith("https://"):
                 print("✅ Credenciais GitHub encontradas no store")
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"  ⚠️ Nao foi possivel ler credenciais salvas: {exc}")
 
     # Environment variables
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -1142,8 +1150,8 @@ def _git_register_sublime_merge(repo_path):
     try:
         subprocess.Popen([exe, "--background", str(repo_path)],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"  ⚠️ Nao foi possivel abrir Sublime Merge: {exc}")
 
 
 def _get_repositories_to_clone(mode, components):
@@ -1193,6 +1201,7 @@ def main():
             subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
                            "--accept-package-agreements", "--accept-source-agreements"],
                           text=True)
+            _windows_refresh_path()
         if not _git_validate():
             print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
             sys.exit(1)
