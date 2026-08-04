@@ -897,7 +897,6 @@ def _sys_update_environment():
         subprocess.run(["sudo", "apt", "upgrade", "-y"], text=True)
     elif os_type == "windows":
         print("  winget upgrade...")
-        subprocess.run(["winget", "upgrade"], text=True)
         subprocess.run(["winget", "upgrade", "--all",
                         "--accept-package-agreements", "--accept-source-agreements"], text=True)
         _windows_refresh_path()
@@ -1081,6 +1080,16 @@ def _git_setup_credentials():
     """Configura credenciais GitHub (token via store, env, ou prompt)."""
     store_path = Path.home() / ".git-credentials"
 
+    # Garante o helper `store` (e especificamente para o GitHub) em TODOS os
+    # caminhos. Sem isso, no Windows o Git Credential Manager (GCM) fica
+    # ativo e abre splash interativo (navegador/codigo) durante o clone.
+    subprocess.run(["git", "config", "--global", "credential.helper", "store"],
+                   capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "--global",
+         "credential.https://github.com.helper", "store"],
+        capture_output=True, text=True)
+
     # Tenta ler credenciais salvas
     if store_path.exists():
         try:
@@ -1107,10 +1116,6 @@ def _git_setup_credentials():
         print("❌ Credenciais necessarias para repositorios privados")
         sys.exit(1)
     _git_write_credentials(username, token, store_path)
-
-    # Configura git credential helper
-    subprocess.run(["git", "config", "--global", "credential.helper", "store"],
-                   capture_output=True, text=True)
 
 
 def _git_write_credentials(username, token, store_path):
@@ -1170,8 +1175,13 @@ def _git_clone_one(repo_name, repo_url, branch="main"):
 
 def _git_run_with_retry(args, repo_name):
     """Executa comando git com retry em caso de erro de autenticacao/rede."""
+    # Impede prompts interativos: GCM (Windows) nao abre splash e o terminal
+    # nao pede senha. A credencial deve vir do store (gravado antes do clone).
+    env = dict(os.environ)
+    env["GCM_INTERACTIVE"] = "never"
+    env["GIT_TERMINAL_PROMPT"] = "0"
     for attempt in range(1, MAX_RETRIES + 1):
-        result = subprocess.run(args, capture_output=True, text=True)
+        result = subprocess.run(args, capture_output=True, text=True, env=env)
         if result.returncode == 0:
             return result
         is_auth = "403" in result.stderr or "Authentication failed" in result.stderr
