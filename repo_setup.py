@@ -6,7 +6,7 @@ Componentes: VS Code, configurações de desktop (Xfce)
 from maktrak_setup import SetupBase, print_banner, ANSI_CYAN
 
 SETUP_NAME = "MakTrak Setup — Ambiente"
-SETUP_VERSION = "1.0.1"
+SETUP_VERSION = "1.0.2"
 SETUP_DATE = "2026-08-04"
 
 
@@ -18,7 +18,7 @@ class AmbienteSetup(SetupBase):
         print("  Preparando ambiente base...")
 
     def install(self):
-        self.install_pkgs("vscode")
+        self.install_pkgs("vscode", "windows-terminal")
 
     def configure(self):
         # Extensoes universais sao instaladas pelo orquestrador

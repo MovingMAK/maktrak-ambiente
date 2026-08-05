@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.1.3"
+SETUP_VERSION = "1.1.8"
 SETUP_DATE = "2026-08-04"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -42,13 +42,29 @@ ANSI_MAGENTA = "\033[35m"
 ANSI_BLUE = "\033[34m"
 
 
-def _enable_ansi_windows():
-    """Habilita processamento VT (cores) no console do Windows."""
+def _setup_windows_console():
+    """Configura o console do Windows: ANSI (cores) + UTF-8 (emojis).
+
+    Os emojis/simbolos do script sao exibidos corretamente em terminais com
+    fonte compativel (Windows Terminal + Cascadia/Segoe UI Emoji). Em consoles
+    legados (conhost com fonte raster) ainda aparecem como retangulos — nesse
+    caso, use o Windows Terminal.
+    """
     if platform.system() != "Windows":
         return
     try:
         ctypes.windll.kernel32.SetConsoleMode(
             ctypes.windll.kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        subprocess.run(["cmd", "/c", "chcp", "65001"],
+                       capture_output=True, text=True)
     except Exception:
         pass
 
@@ -68,7 +84,7 @@ def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
 
     Usado no inicio do orquestrador (main) e no init() de cada repo_setup.py.
     """
-    _enable_ansi_windows()
+    _setup_windows_console()
     stamp = f"v{version} ({date})" if date else f"v{version}"
     if _supports_color():
         print(f"{ANSI_BOLD}{accent}== {name} {stamp} =={ANSI_RESET}")
@@ -94,7 +110,7 @@ REPOSITORIES = {
 }
 
 DEV_MODULES = {
-    "ambiente":   ["vscode"],
+    "ambiente":   ["vscode", "windows-terminal"],
     "mecanica":   ["freecad"],
     "eletronica": ["kicad"],
     "firmware":   ["vscode"],
@@ -137,6 +153,7 @@ _PKG = {
     "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
     "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
     "vscode": {"linux": ('snap', 'classic', 'code'), "windows": 'Microsoft.VisualStudioCode'},
+    "windows-terminal": {"linux": (), "windows": 'Microsoft.WindowsTerminal'},
 }
 
 # ============================================================================
@@ -439,6 +456,38 @@ class SetupBase(ABC):
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
+    def _resolve_shortcut_target(self, lnk_path):
+        """Resolve o destino de um atalho .lnk (via WScript.Shell)."""
+        ps = ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut('
+              f'"{lnk_path}"); Write-Output $s.TargetPath')
+        result = self._run(["powershell", "-NoProfile", "-Command", ps],
+                           capture_output=True)
+        target = (result.stdout or "").strip()
+        if target and os.path.isfile(target):
+            return target
+        return ""
+
+    def _find_shortcut_binary(self, name):
+        """Windows: localiza o executavel via atalho da area de trabalho.
+
+        FreeCAD/KiCad criam atalho no Desktop mas nao entram no PATH.
+        """
+        if self.os_type != "windows":
+            return ""
+        desktop_dirs = [
+            os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"),
+            os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop"),
+        ]
+        for d in desktop_dirs:
+            if not os.path.isdir(d):
+                continue
+            for fn in sorted(os.listdir(d)):
+                if fn.lower().endswith(".lnk") and name.lower() in fn.lower():
+                    target = self._resolve_shortcut_target(os.path.join(d, fn))
+                    if target:
+                        return target
+        return ""
+
     def assert_executable(self, name, timeout=20):
         """Verifica se um executavel esta instalado (PRESENCA e obrigatoria).
 
@@ -446,8 +495,15 @@ class SetupBase(ABC):
         padrao, ou o mapeado em _VERSION_CMD). FALHA somente se o binario
         nao existir. Se a checagem de versao falhar/timeout, registra o
         executavel como OK com aviso (instalado nao e falha).
+        No Windows, se nao estiver no PATH, resolve via atalho do Desktop.
         """
         binary = shutil.which(name)
+        if not binary and self.os_type == "windows":
+            binary = self._find_shortcut_binary(name)
+            if binary:
+                bindir = os.path.dirname(binary)
+                os.environ["PATH"] = bindir + os.pathsep + os.environ["PATH"]
+                print(f"  ✅ {name}: resolvido via atalho ({binary})")
         if not binary:
             self.results[name] = False
             return False
@@ -504,16 +560,43 @@ class SetupBase(ABC):
 
     # ── Flutter ───────────────────────────────────────────────────────────
 
+    def _ensure_flutter_path(self):
+        """Garante `flutter` no PATH (Windows: o winget nem sempre registra).
+
+        Se `flutter` nao estiver no PATH, procura em locais comuns do SDK e
+        adiciona o `bin` ao PATH do processo. Retorna True se disponivel.
+        """
+        if shutil.which("flutter"):
+            return True
+        if self.os_type != "windows":
+            return False
+        candidates = [
+            os.path.expandvars(r"%USERPROFILE%\flutter\bin"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Flutter\bin"),
+            os.path.expandvars(r"%LOCALAPPDATA%\flutter\bin"),
+            r"C:\flutter\bin",
+        ]
+        for d in candidates:
+            if os.path.isfile(os.path.join(d, "flutter.bat")):
+                os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
+                print(f"  ✅ flutter encontrado em {d} (adicionado ao PATH)")
+                return True
+        print("  ⚠️ flutter nao encontrado no PATH; verifique a instalacao")
+        return False
+
     def flutter_build(self, path, platform_target):
         """Compila um projeto Flutter para a plataforma alvo."""
+        self._ensure_flutter_path()
         self._run(["flutter", "build", platform_target], cwd=str(path))
 
     def flutter_test(self, path):
         """Executa os testes de um projeto Flutter."""
+        self._ensure_flutter_path()
         self._run(["flutter", "test"], cwd=str(path))
 
     def flutter_config(self, opts):
         """Aplica configuracoes no Flutter (ex: --enable-web)."""
+        self._ensure_flutter_path()
         self._run(["flutter", "config"] + opts)
 
     # ── Android SDK ───────────────────────────────────────────────────────
@@ -653,8 +736,9 @@ class SetupBase(ABC):
     def _get_android_sdk_path(self):
         """Retorna o caminho do Android SDK."""
         try:
+            self._ensure_flutter_path()
             result = self._run(["flutter", "doctor", "-v"], capture_output=True)
-            for line in result.stdout.splitlines():
+            for line in (result.stdout or "").splitlines():
                 if "Android SDK" in line:
                     path = line.split("at")[-1].strip()
                     if os.path.isdir(path):
@@ -743,7 +827,7 @@ class SetupBase(ABC):
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             urllib.request.urlretrieve(url, dest)
-            self._run(["python3", str(dest)])
+            self._run([sys.executable, str(dest)])
         except Exception as exc:
             print(f"  ❌ Falha ao instalar PlatformIO: {exc}")
             return None
@@ -843,6 +927,37 @@ class SetupBase(ABC):
 # ============================================================================
 # FUNCOES DO ORQUESTRADOR (standalone - nao estao na SetupBase)
 # ============================================================================
+
+def _windows_prepare_terminal():
+    """Windows: garante o Windows Terminal instalado e como terminal padrao.
+
+    Deve rodar ANTES da elevacao para que a janela admin (onde o setup roda)
+    abra no WT, com suporte a emojis. Idempotente e best-effort (nao falha
+    se o winget nao conseguir instalar).
+    """
+    if platform.system() != "Windows":
+        return
+    # 1. Instala o WT se ausente (per-user; nao exige admin)
+    if not shutil.which("wt"):
+        print("  Instalando Windows Terminal...")
+        subprocess.run(
+            ["winget", "install", "--id", "Microsoft.WindowsTerminal", "-e",
+             "--accept-package-agreements", "--accept-source-agreements"],
+            text=True)
+        _windows_refresh_path()
+    # 2. So define como padrao se estiver disponivel
+    if shutil.which("wt"):
+        wt_clsid = "{2EACA947-7F5F-4CFA-BA87-8F7FBEEFBE69}"
+        for val in ("DelegationConsole", "DelegationTerminal"):
+            subprocess.run(
+                ["reg", "add", r"HKCU\Console\%Startup", "/v", val,
+                 "/t", "REG_SZ", "/d", wt_clsid, "/f"],
+                capture_output=True, text=True)
+        print("  ✅ Windows Terminal instalado e definido como terminal padrao")
+    else:
+        print("  ⚠️ Windows Terminal indisponivel; a janela admin abrira "
+              "no console padrao")
+
 
 def _sys_require_admin():
     """Requer privilegios de administrador/sudo no inicio da execucao."""
@@ -1359,6 +1474,12 @@ def _get_software_for_components(components, mode):
 
 def main():
     """MakTrak Setup - bootstrap + orquestrador."""
+    # Configura console (UTF-8 + ANSI) antes de qualquer saida
+    _setup_windows_console()
+    if platform.system() == "Windows":
+        # Instala/configura o Windows Terminal ANTES da elevacao, para que a
+        # janela admin (onde o setup roda) abra no WT com suporte a emojis.
+        _windows_prepare_terminal()
     print("=" * 60)
     print_banner(SETUP_NAME, SETUP_VERSION)
     print("=" * 60)
