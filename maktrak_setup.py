@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.1.8"
+SETUP_VERSION = "1.2.0"
 SETUP_DATE = "2026-08-04"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -144,7 +144,7 @@ PROD_MODULES = {
 
 _PKG = {
     "chromium": {"linux": ('snap', '', 'chromium'), "windows": ""},
-    "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": 'Flutter.Flutter'},
+    "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": ''},
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
     "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
     "kicad": {"linux": ('apt', 'ppa:kicad/kicad-10.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
@@ -431,7 +431,8 @@ class SetupBase(ABC):
         for name, entry in pkgs:
             winget_id = entry.get("windows")
             if not winget_id:
-                print(f"  ⚠️ {name}: sem entrada Windows no _PKG")
+                print(f"  ⚠️ {name}: sem instalacao winget no _PKG "
+                      f"(pode usar metodo proprio)")
                 continue
             self._run([
                 "winget", "install", "--id", winget_id, "-e",
@@ -561,10 +562,11 @@ class SetupBase(ABC):
     # ── Flutter ───────────────────────────────────────────────────────────
 
     def _ensure_flutter_path(self):
-        """Garante `flutter` no PATH (Windows: o winget nem sempre registra).
+        """Garante `flutter` no PATH (Windows: sem winget confiavel).
 
-        Se `flutter` nao estiver no PATH, procura em locais comuns do SDK e
-        adiciona o `bin` ao PATH do processo. Retorna True se disponivel.
+        Se `flutter` nao estiver no PATH, procura em locais comuns do SDK;
+        se nao achar, baixa o SDK oficial e adiciona `bin` ao PATH.
+        Retorna True se disponivel.
         """
         if shutil.which("flutter"):
             return True
@@ -581,7 +583,44 @@ class SetupBase(ABC):
                 os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
                 print(f"  ✅ flutter encontrado em {d} (adicionado ao PATH)")
                 return True
-        print("  ⚠️ flutter nao encontrado no PATH; verifique a instalacao")
+        print("  flutter nao instalado; baixando o SDK oficial...")
+        return self._install_flutter_windows()
+
+    def _install_flutter_windows(self):
+        """Baixa o SDK oficial do Flutter no Windows (fallback ao winget).
+
+        O pacote `Flutter.Flutter` do winget foi removido do repositorio; o
+        metodo oficial e baixar o zip do SDK e adicionar `bin` ao PATH.
+        Retorna True se o SDK ficou disponivel.
+        """
+        dest_root = Path(os.path.expandvars(r"%USERPROFILE%"))
+        try:
+            rel_url = ("https://storage.googleapis.com/flutter_infra_release/"
+                       "releases/releases_windows.json")
+            with urllib.request.urlopen(rel_url, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            stable = [h for h in data.get("releases", []) if h.get("channel") == "stable"]
+            if not stable:
+                print("  ❌ Flutter: sem release stable no indice")
+                return False
+            archive = stable[0]["archive"]
+            zip_url = f"{data['base_url']}/{archive}"
+            zip_path = dest_root / "flutter.zip"
+            print(f"  Baixando Flutter SDK ({archive})...")
+            urllib.request.urlretrieve(zip_url, zip_path)
+            print("  Extraindo...")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(dest_root)
+            zip_path.unlink()
+        except Exception as exc:
+            print(f"  ❌ Falha ao baixar Flutter SDK: {exc}")
+            return False
+        bin_dir = dest_root / "flutter" / "bin"
+        if bin_dir.is_dir():
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+            print(f"  ✅ Flutter SDK instalado em {bin_dir.parent}")
+            return True
+        print("  ❌ Flutter SDK extraido, mas `bin` nao encontrado")
         return False
 
     def flutter_build(self, path, platform_target):
@@ -807,13 +846,32 @@ class SetupBase(ABC):
             print(f"  ⚠️ Falha ao checar modulo venv: {exc}")
             return False
 
+    def _platformio_bin_dir(self):
+        """Diretorio dos executaveis do PlatformIO (venv do penv)."""
+        base = Path.home() / ".platformio" / "penv"
+        return base / ("Scripts" if self.os_type == "windows" else "bin")
+
+    def _platformio_exe(self, bin_dir):
+        """Caminho do executavel `pio` no diretorio do PlatformIO."""
+        return bin_dir / ("pio.exe" if self.os_type == "windows" else "pio")
+
+    def _platformio_add_to_path(self, bin_dir):
+        """Adiciona o diretorio bin do PlatformIO ao PATH do processo."""
+        if bin_dir.is_dir() and str(bin_dir) not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+            print(f"  ✅ PlatformIO adicionado ao PATH ({bin_dir})")
+
     def ensure_platformio(self):
         """Instala PlatformIO Core se o CLI `pio` nao estiver disponivel.
 
         Retorna o caminho do binario `pio` (ou None em caso de falha).
+        Garante o diretorio do penv no PATH (no Windows o instalador nao
+        registra os executaveis).
         """
-        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
+        bin_dir = self._platformio_bin_dir()
+        pio = shutil.which("pio") or str(self._platformio_exe(bin_dir))
         if shutil.which("pio") or os.path.isfile(pio):
+            self._platformio_add_to_path(bin_dir)
             print("  ✅ PlatformIO disponivel")
             return pio
         # O instalador do PlatformIO cria um venv; garante o python3-venv
@@ -831,8 +889,10 @@ class SetupBase(ABC):
         except Exception as exc:
             print(f"  ❌ Falha ao instalar PlatformIO: {exc}")
             return None
-        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
-        if os.path.isfile(pio):
+        # Apos instalar, garante o diretorio no PATH do processo
+        self._platformio_add_to_path(bin_dir)
+        pio = shutil.which("pio") or str(self._platformio_exe(bin_dir))
+        if shutil.which("pio") or os.path.isfile(pio):
             return pio
         print("  ⚠️ PlatformIO instalado, mas `pio` nao encontrado no PATH")
         return None
@@ -846,7 +906,9 @@ class SetupBase(ABC):
         build (fase de teste), que passa a usar o cache e responde rapido.
         Retorna True se os pacotes foram preparados.
         """
-        pio = shutil.which("pio") or str(Path.home() / ".platformio" / "penv" / "bin" / "pio")
+        bin_dir = self._platformio_bin_dir()
+        self._platformio_add_to_path(bin_dir)
+        pio = shutil.which("pio") or str(self._platformio_exe(bin_dir))
         if not os.path.isfile(pio) or not project_dir:
             return False
         print("  Preparando dependencias do PlatformIO (download antecipado)...")
@@ -954,6 +1016,10 @@ def _windows_prepare_terminal():
                  "/t", "REG_SZ", "/d", wt_clsid, "/f"],
                 capture_output=True, text=True)
         print("  ✅ Windows Terminal instalado e definido como terminal padrao")
+        # So consoles NOVOS abrem no WT; esta janela ja esta aberta
+        if not os.environ.get("WT_SESSION"):
+            print("  ⚠️ Esta janela continua no console atual. Abra uma NOVA "
+                  "janela do Windows Terminal (ou rode de novo) p/ ver emojis.")
     else:
         print("  ⚠️ Windows Terminal indisponivel; a janela admin abrira "
               "no console padrao")
