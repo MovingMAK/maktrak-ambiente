@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.0"
-SETUP_DATE = "2026-08-04"
+SETUP_VERSION = "1.2.2"
+SETUP_DATE = "2026-08-05"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -659,12 +659,17 @@ class SetupBase(ABC):
         self._android_accept_licenses(sdk_root)
         return True
 
+    def _cmdline_bin(self, sdk_root, name):
+        """Caminho do executavel na bin do cmdline-tools (Windows: .bat)."""
+        exe = name + (".bat" if self.os_type == "windows" else "")
+        return os.path.join(sdk_root, "cmdline-tools", "latest", "bin", exe)
+
     def create_avd(self, name, device, target, description=""):
         """Cria um Android Virtual Device."""
         sdk_root = self._get_android_sdk_path()
         if not sdk_root:
             return
-        avdmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "avdmanager")
+        avdmanager = self._cmdline_bin(sdk_root, "avdmanager")
         if not os.path.exists(avdmanager):
             print(f"  ⚠️ avdmanager nao encontrado, ignorando AVD {name}")
             return
@@ -745,7 +750,7 @@ class SetupBase(ABC):
 
     def _android_ensure_sdkmanager(self, sdk_root):
         """Garante que sdkmanager esta instalado e executavel."""
-        sdkmanager = os.path.join(sdk_root, "cmdline-tools", "latest", "bin", "sdkmanager")
+        sdkmanager = self._cmdline_bin(sdk_root, "sdkmanager")
         if not os.path.exists(sdkmanager):
             print("  Instalando Android cmdline-tools...")
             self._install_cmdline_tools(sdk_root)
@@ -1016,8 +1021,21 @@ def _windows_prepare_terminal():
                  "/t", "REG_SZ", "/d", wt_clsid, "/f"],
                 capture_output=True, text=True)
         print("  ✅ Windows Terminal instalado e definido como terminal padrao")
-        # So consoles NOVOS abrem no WT; esta janela ja esta aberta
+        # So consoles NOVOS abrem no WT; esta janela ja esta aberta.
+        # Se nao estamos no WT nem como admin, re-abre em WT: a subsequente
+        # elevacao (ShellExecuteW) usara o terminal padrao = WT.
         if not os.environ.get("WT_SESSION"):
+            try:
+                is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+            except Exception:
+                is_admin = False
+            if not is_admin:
+                script_path = os.path.abspath(sys.argv[0])
+                script_args = subprocess.list2cmdline(sys.argv[1:])
+                cmd = f'"{sys.executable}" {script_path} {script_args}'
+                subprocess.run(["wt", "-w", "new", "powershell", "-NoExit", "-Command", cmd])
+                print("  🔄 Reabrindo no Windows Terminal...")
+                sys.exit(0)
             print("  ⚠️ Esta janela continua no console atual. Abra uma NOVA "
                   "janela do Windows Terminal (ou rode de novo) p/ ver emojis.")
     else:
