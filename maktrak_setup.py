@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.5"
+SETUP_VERSION = "1.2.7"
 SETUP_DATE = "2026-08-06"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -97,9 +97,8 @@ def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
 # ============================================================================
 
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 3
 SUDO_KEEPALIVE_INTERVAL = 120  # segundos entre renovacoes do ticket sudo
+NGINX_WINDOWS_VERSION = "1.30.4"  # stable atual (nginx.org/en/download.html)
 
 REPOSITORIES = {
     "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
@@ -114,8 +113,8 @@ DEV_MODULES = {
     "mecanica":   ["freecad"],
     "eletronica": ["kicad"],
     "firmware":   ["vscode"],
-    "servidor":   ["vscode", "flutter"],
-    "app":        ["vscode", "flutter"],
+    "servidor":   ["vscode"],
+    "app":        ["vscode"],
 }
 
 DEV_REPOSITORIES = {
@@ -144,11 +143,11 @@ PROD_MODULES = {
 
 _PKG = {
     "chromium": {"linux": ('snap', '', 'chromium'), "windows": ""},
-    "flutter": {"linux": ('snap', 'classic', 'flutter'), "windows": ''},
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
     "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
     "kicad": {"linux": ('apt', 'ppa:kicad/kicad-10.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
-    "nginx": {"linux": ('apt', '', 'nginx'), "windows": 'NGINX.NGINX'},
+    "nginx": {"linux": ('apt', '', 'nginx'), "windows": ''},  # Windows: install_nginx_windows()
+
     "postgresql": {"linux": ('apt', '', 'postgresql'), "windows": 'PostgreSQL.PostgreSQL'},
     "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
     "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
@@ -562,66 +561,61 @@ class SetupBase(ABC):
     # ── Flutter ───────────────────────────────────────────────────────────
 
     def _ensure_flutter_path(self):
-        """Garante `flutter` no PATH (Windows: sem winget confiavel).
+        """Garante `flutter` no PATH (cross-platform via git clone).
 
-        Se `flutter` nao estiver no PATH, procura em locais comuns do SDK;
-        se nao achar, baixa o SDK oficial e adiciona `bin` ao PATH.
-        Retorna True se disponivel.
+        Se `flutter` nao estiver no PATH, procura em ~/flutter/bin (local
+        padrao do git clone); se nao achar, clona o SDK oficial e adiciona
+        `bin` ao PATH. Retorna True se disponivel.
         """
         if shutil.which("flutter"):
             return True
-        if self.os_type != "windows":
-            return False
-        candidates = [
-            os.path.expandvars(r"%USERPROFILE%\flutter\bin"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Flutter\bin"),
-            os.path.expandvars(r"%LOCALAPPDATA%\flutter\bin"),
-            r"C:\flutter\bin",
-        ]
-        for d in candidates:
-            if os.path.isfile(os.path.join(d, "flutter.bat")):
-                os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
-                print(f"  ✅ flutter encontrado em {d} (adicionado ao PATH)")
-                return True
-        print("  flutter nao instalado; baixando o SDK oficial...")
-        return self._install_flutter_windows()
-
-    def _install_flutter_windows(self):
-        """Baixa o SDK oficial do Flutter no Windows (fallback ao winget).
-
-        O pacote `Flutter.Flutter` do winget foi removido do repositorio; o
-        metodo oficial e baixar o zip do SDK e adicionar `bin` ao PATH.
-        Retorna True se o SDK ficou disponivel.
-        """
-        dest_root = Path(os.path.expandvars(r"%USERPROFILE%"))
-        try:
-            rel_url = ("https://storage.googleapis.com/flutter_infra_release/"
-                       "releases/releases_windows.json")
-            with urllib.request.urlopen(rel_url, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            stable = [h for h in data.get("releases", []) if h.get("channel") == "stable"]
-            if not stable:
-                print("  ❌ Flutter: sem release stable no indice")
-                return False
-            archive = stable[0]["archive"]
-            zip_url = f"{data['base_url']}/{archive}"
-            zip_path = dest_root / "flutter.zip"
-            print(f"  Baixando Flutter SDK ({archive})...")
-            urllib.request.urlretrieve(zip_url, zip_path)
-            print("  Extraindo...")
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(dest_root)
-            zip_path.unlink()
-        except Exception as exc:
-            print(f"  ❌ Falha ao baixar Flutter SDK: {exc}")
-            return False
-        bin_dir = dest_root / "flutter" / "bin"
-        if bin_dir.is_dir():
-            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
-            print(f"  ✅ Flutter SDK instalado em {bin_dir.parent}")
+        flutter_home = Path.home() / "flutter" / "bin"
+        if flutter_home.is_dir():
+            os.environ["PATH"] = str(flutter_home) + os.pathsep + os.environ["PATH"]
+            print(f"  ✅ flutter encontrado em {flutter_home.parent}")
             return True
-        print("  ❌ Flutter SDK extraido, mas `bin` nao encontrado")
-        return False
+        # snap para compatibilidade com setups anteriores (Linux)
+        snap_flutter = Path.home() / "snap" / "flutter" / "common" / "flutter" / "bin"
+        if snap_flutter.is_dir():
+            os.environ["PATH"] = str(snap_flutter) + os.pathsep + os.environ["PATH"]
+            print(f"  ✅ flutter encontrado em {snap_flutter.parent}")
+            return True
+        print("  flutter nao instalado; clonando o SDK oficial (git)...")
+        return self._install_flutter_git()
+
+    def _install_flutter_git(self):
+        """Instala o Flutter SDK via git clone (canonico, cross-platform).
+
+        Usa `git clone -b stable` do repositorio oficial — mesmo metodo
+        usado pela extensao Flutter do VS Code ao fazer "Download SDK".
+        O git ja e pre-requisito do orquestrador (instalado antes de tudo).
+        Retorna True se o SDK ficou disponivel no PATH.
+        """
+        flutter_home = Path.home() / "flutter"
+        if flutter_home.is_dir():
+            bin_dir = flutter_home / "bin"
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+            print(f"  ✅ Flutter SDK ja existe em {flutter_home}")
+            return True
+        print("  Clonando Flutter SDK (branch stable)...")
+        result = _git_clone_to(
+            "https://github.com/flutter/flutter.git",
+            "stable", flutter_home, "flutter-sdk",
+        )
+        if result.returncode != 0:
+            print("  ❌ Falha ao clonar Flutter SDK")
+            return False
+        bin_dir = flutter_home / "bin"
+        os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+        # git clone nao registra PATH; persiste no usuario (Windows)
+        if self.os_type == "windows":
+            ps = ("[Environment]::SetEnvironmentVariable('Path',"
+                  " [Environment]::GetEnvironmentVariable('Path','User')"
+                  f" + ';{bin_dir}', 'User')")
+            self._run(["powershell", "-NoProfile", "-Command", ps],
+                      capture_output=True)
+        print(f"  ✅ Flutter SDK instalado em {flutter_home}")
+        return True
 
     def flutter_build(self, path, platform_target):
         """Compila um projeto Flutter para a plataforma alvo."""
@@ -645,13 +639,23 @@ class SetupBase(ABC):
 
         As licencas sao aprovadas ANTES de baixar qualquer pacote ou imagem
         de sistema, sem prompt interativo (arquivos em <SDK>/licenses/).
+        Retorna False se o JDK nao puder ser garantido (bloqueia AVDs/APK).
         """
-        self._android_install_jdk()
+        if not self._android_install_jdk():
+            print("  ⚠️ JDK nao instalado; Android SDK/AVDs indisponiveis")
+            return False
         self._android_setup_kvm()
         sdk_root = self._get_android_sdk_path()
         if not sdk_root:
             print("  XX Android SDK nao localizado")
             return False
+        # Flutter so encontra o SDK com ANDROID_HOME definido; no Windows o
+        # padrao de busca dele e %LOCALAPPDATA%\Android\Sdk. Define e persiste.
+        os.environ["ANDROID_HOME"] = sdk_root
+        os.environ["ANDROID_SDK_ROOT"] = sdk_root
+        if self.os_type == "windows":
+            self._run(["setx", "ANDROID_HOME", sdk_root], capture_output=True)
+            self._run(["setx", "ANDROID_SDK_ROOT", sdk_root], capture_output=True)
         sdkmanager = self._android_ensure_sdkmanager(sdk_root)
         if not sdkmanager:
             return False
@@ -694,26 +698,39 @@ class SetupBase(ABC):
             print(f"  ❌ Falha ao criar AVD {name}")
 
     def _avd_device_exists(self, avdmanager, device):
-        """Verifica se o device id existe no catalogo do avdmanager."""
-        try:
-            result = subprocess.run([avdmanager, "list", "device", "-c"],
-                                    capture_output=True, text=True, timeout=30)
-            for line in (result.stdout or "").splitlines():
-                line = line.strip().strip('"')
-                if line == device:
-                    return True
-        except Exception as exc:
-            print(f"  ⚠️ Falha ao listar devices do AVD: {exc}")
+        """Verifica se o device id existe no catalogo do avdmanager.
+
+        Usa self._run para resolver o .bat no Windows (avdmanager.bat);
+        subprocess direto falha em .bat (CreateProcess).
+        """
+        result = self._run([avdmanager, "list", "device", "-c"],
+                           capture_output=True)
+        for line in (result.stdout or "").splitlines():
+            line = line.strip().strip('"')
+            if line == device:
+                return True
         return False
 
     def _android_install_jdk(self):
-        """Instala JDK para desenvolvimento Android."""
+        """Instala JDK para desenvolvimento Android.
+
+        Retorna True se `java` ficar disponivel no PATH apos a instalacao.
+        """
         print("  Instalando JDK...")
         if self.os_type == "linux":
-            self._run(["sudo", "apt", "install", "-y", "default-jdk-headless"])
+            result = self._run(["sudo", "apt", "install", "-y",
+                                "default-jdk-headless"])
+            return shutil.which("java") is not None or result.returncode == 0
         elif self.os_type == "windows":
-            self._run(["winget", "install", "--id", "Microsoft.OpenJDK.17",
-                       "-e", "--accept-package-agreements"])
+            # Microsoft.OpenJDK.17 falhou como admin ("Installer hash does not
+            # match; cannot be overridden"). Temurin 17 (ANDROID-SETUP.md)
+            # instala de forma confiavel e registra o PATH do sistema.
+            self._run(["winget", "install", "--id",
+                       "EclipseAdoptium.Temurin.17.JDK", "-e",
+                       "--accept-package-agreements", "--accept-source-agreements"])
+            self._refresh_path()
+            return shutil.which("java") is not None
+        return True
 
     def _android_setup_kvm(self):
         """Configura KVM para aceleracao de emulador (Linux)."""
@@ -798,6 +815,18 @@ class SetupBase(ABC):
         for c in candidates:
             if c and os.path.isdir(c):
                 return c
+        return self._android_sdk_default()
+
+    def _android_sdk_default(self):
+        """Caminho padrao do Android SDK por SO.
+
+        No Windows o Flutter procura %LOCALAPPDATA%\\Android\\Sdk por padrao;
+        no Linux usa ~/Android/Sdk.
+        """
+        if self.os_type == "windows":
+            base = os.environ.get("LOCALAPPDATA")
+            if base:
+                return str(Path(base) / "Android" / "Sdk")
         return str(Path.home() / "Android" / "Sdk")
 
     def _install_cmdline_tools(self, sdk_root):
@@ -966,6 +995,74 @@ class SetupBase(ABC):
                        "libgtk-3-dev"])
         elif self.os_type == "windows":
             print("  ⚠️ build Linux nao se aplica no Windows")
+
+    def install_flutter_windows_tools(self):
+        """Instala o toolchain do Windows exigido pelo Flutter (VS Build Tools).
+
+        `flutter build windows` requer Visual Studio com o workload C++
+        (VCTools). Idempotente: pula se o VS Installer ja estiver presente.
+        """
+        if self.os_type != "windows":
+            return
+        vs_where = (r"C:\Program Files (x86)\Microsoft Visual Studio"
+                    r"\Installer\vswhere.exe")
+        if os.path.exists(vs_where):
+            print("  ✅ Visual Studio Build Tools ja presentes")
+            return
+        print("  Instalando Visual Studio Build Tools (workload C++)...")
+        self._run([
+            "winget", "install", "--id",
+            "Microsoft.VisualStudio.2022.BuildTools", "-e",
+            "--accept-package-agreements", "--accept-source-agreements",
+            "--override",
+            "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools "
+            "--includeRecommended",
+        ])
+
+    def install_nginx_windows(self):
+        """Instala nginx no Windows a partir do zip oficial (sem winget).
+
+        O nginx nao possui pacote winget; baixa o zip do nginx.org, extrai em
+        %ProgramFiles%\nginx e adiciona o diretorio ao PATH (processo e usuario).
+        Retorna True se o nginx ficar disponivel no PATH.
+        """
+        if self.os_type != "windows":
+            return False
+        if shutil.which("nginx"):
+            print("  ✅ nginx ja disponivel no PATH")
+            return True
+        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        base = Path(program_files) / "nginx"
+        version = NGINX_WINDOWS_VERSION
+        url = f"https://nginx.org/download/nginx-{version}.zip"
+        zip_path = base / "nginx.zip"
+        print(f"  Baixando nginx {version} (zip oficial)...")
+        base.mkdir(parents=True, exist_ok=True)
+        try:
+            urllib.request.urlretrieve(url, zip_path)
+        except Exception as exc:
+            print(f"  ❌ Falha ao baixar nginx: {exc}")
+            return False
+        print("  Extraindo...")
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(base)
+        except Exception as exc:
+            print(f"  ❌ Falha ao extrair nginx: {exc}")
+            return False
+        zip_path.unlink()
+        bin_dir = base / f"nginx-{version}"
+        if not os.path.isfile(bin_dir / "nginx.exe"):
+            print(f"  ❌ nginx.exe nao encontrado em {bin_dir}")
+            return False
+        os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
+        ps = ("[Environment]::SetEnvironmentVariable('Path',"
+              " [Environment]::GetEnvironmentVariable('Path','User')"
+              f" + ';{bin_dir}', 'User')")
+        self._run(["powershell", "-NoProfile", "-Command", ps],
+                  capture_output=True)
+        print(f"  ✅ nginx instalado em {bin_dir} (adicionado ao PATH)")
+        return True
 
     # ── Fases abstratas - a derivada implementa as 4 ──────────────────────
 
@@ -1460,15 +1557,23 @@ def _git_clone_repos(mode, components, branch="main"):
     return True
 
 
+def _git_clone_to(url, branch, dest, name):
+    """Clona um repositorio git com autenticacao e retry.
+
+    Helper compartilhado para clone de repos MakTrak e ferramentas
+    externas (Flutter SDK). Retorna o CompletedProcess do git.
+    """
+    cmd = ["git", "clone", "--progress", "--branch", branch, url, str(dest)]
+    return _git_run(cmd, name)
+
+
 def _git_clone_one(repo_name, repo_url, branch="main"):
     """Clona ou atualiza um repositorio em uma branch especifica."""
     dest = MOVINGMAK_REPOS_BASE / repo_name
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"  Clonando {repo_name} ({branch})...")
-        cmd = ["git", "clone", "--progress", "--branch", branch,
-               repo_url, str(dest)]
-        result = _git_run_with_retry(cmd, repo_name)
+        result = _git_clone_to(repo_url, branch, dest, repo_name)
         if result.returncode == 0:
             print(f"  ✅ Clonado {repo_name} ({branch})")
             _git_register_sublime_merge(dest)
@@ -1479,7 +1584,7 @@ def _git_clone_one(repo_name, repo_url, branch="main"):
     # Troca para a branch desejada antes do pull
     subprocess.run(["git", "-C", str(dest), "checkout", branch],
                    capture_output=True, text=True)
-    result = _git_run_with_retry(
+    result = _git_run(
         ["git", "-C", str(dest), "pull", "--force"], repo_name
     )
     if result.returncode == 0:
@@ -1490,45 +1595,31 @@ def _git_clone_one(repo_name, repo_url, branch="main"):
     return False
 
 
-def _git_run_with_retry(args, repo_name):
-    """Executa comando git com retry em caso de erro de autenticacao/rede."""
-    # Impede prompts interativos: GCM (Windows) nao abre splash e o terminal
-    # nao pede senha. A credencial deve vir do store (gravado antes do clone).
+def _git_run(args, repo_name):
+    """Executa um comando git com autenticacao, sem prompts interativos.
+
+    Injeta credenciais GitHub (header HTTP) quando disponiveis e desabilita
+    GCM/GIT_TERMINAL_PROMPT. Nao faz retry: se falhar, o usuario re-roda.
+    """
     env = dict(os.environ)
     env["GCM_INTERACTIVE"] = "never"
     env["GIT_TERMINAL_PROMPT"] = "0"
-    # Injeta autenticacao via header HTTP quando ha credencial no store.
-    # Dispensa o helper/GCM (as vezes nao configurado no Windows) e evita o
-    # erro "could not read Username" no clone de repos novos.
     cmd = list(args)
     auth = _git_auth_header()
     if auth:
         cmd = [args[0], "-c", f"http.extraHeader={auth}"] + list(args[1:])
-    for attempt in range(1, MAX_RETRIES + 1):
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if result.returncode == 0:
-            return result
-        is_auth = "403" in result.stderr or "Authentication failed" in result.stderr
-        is_net = ("Could not resolve host" in result.stderr or
-                  "Connection refused" in result.stderr or
-                  "Connection timed out" in result.stderr)
-        if attempt < MAX_RETRIES and (is_auth or is_net):
-            delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
-            print(f"  ⚠️ Tentativa {attempt}/{MAX_RETRIES} - retentando em {delay}s...")
-            time.sleep(delay)
-        else:
-            break
-    # Falha definitiva: imprime o motivo real do git para ajudar no diagnostico
-    err_lines = [l for l in (result.stderr or "").splitlines() if l.strip()]
-    out_lines = [l for l in (result.stdout or "").splitlines() if l.strip()]
-    if err_lines:
-        print("  ⚠️ Detalhe do erro (git):")
-        for line in err_lines[-8:]:
-            print(f"    {line.strip()}")
-    elif out_lines:
-        print("  ⚠️ Saida (git):")
-        for line in out_lines[-8:]:
-            print(f"    {line.strip()}")
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        err_lines = [l for l in (result.stderr or "").splitlines() if l.strip()]
+        out_lines = [l for l in (result.stdout or "").splitlines() if l.strip()]
+        if err_lines:
+            print("  ⚠️ Detalhe do erro (git):")
+            for line in err_lines[-8:]:
+                print(f"    {line.strip()}")
+        elif out_lines:
+            print("  ⚠️ Saida (git):")
+            for line in out_lines[-8:]:
+                print(f"    {line.strip()}")
     return result
 
 
