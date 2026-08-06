@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.4"
+SETUP_VERSION = "1.2.5"
 SETUP_DATE = "2026-08-06"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -1034,13 +1034,24 @@ def _windows_prepare_terminal():
             if not is_admin:
                 wt_exe = shutil.which("wt")
                 script_path = os.path.abspath(sys.argv[0])
-                script_args = subprocess.list2cmdline(sys.argv[1:])
-                inner = f'"{sys.executable}" {script_path} {script_args}'
-                # A execucao interna precisa escapar aspas para o PowerShell
-                inner_escaped = inner.replace('"', '\\"')
-                subprocess.run(["powershell", "-NoProfile", "-Command",
-                    f'Start-Process -Verb RunAs -FilePath "{wt_exe}"'
-                    f' -ArgumentList \\"-w new powershell -NoExit -Command \\"{inner_escaped}\\"\\"'])
+                # Reexecuta o setup como admin DENTRO de uma nova janela WT.
+                # Usa -EncodedCommand (base64 UTF-16LE) para o comando interno
+                # nao depender de aspas aninhadas atraves de Start-Process,
+                # wt.exe e powershell (o PowerShell nao usa \" como escape).
+                inner = (f'& "{sys.executable}" '
+                         + subprocess.list2cmdline([script_path] + sys.argv[1:]))
+                encoded = base64.b64encode(
+                    inner.encode("utf-16-le")).decode("ascii")
+                ps = ("Start-Process -Verb RunAs -FilePath '{wt}'"
+                      " -ArgumentList '-w','new','powershell','-NoExit',"
+                      "'-EncodedCommand','{enc}'"
+                      ).format(wt=wt_exe, enc=encoded)
+                result = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", ps],
+                    capture_output=True, text=True)
+                if result.returncode != 0:
+                    print("  ⚠️ Falha ao solicitar elevacao no WT:")
+                    print("    " + (result.stderr or result.stdout or "").strip()[:500])
                 print("  🔄 Abrindo Windows Terminal como administrador...")
                 sys.exit(0)
             print("  ⚠️ Esta janela continua no console atual. Abra uma NOVA "
