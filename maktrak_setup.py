@@ -16,11 +16,11 @@ import base64
 import zipfile
 import importlib.util
 import urllib.request
-import base64
 import ctypes
 import threading
 from pathlib import Path
 from abc import ABC, abstractmethod
+from urllib.parse import quote, unquote
 from urllib.parse import quote, unquote
 
 
@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.7"
+SETUP_VERSION = "1.2.8"
 SETUP_DATE = "2026-08-06"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -69,27 +69,14 @@ def _setup_windows_console():
         pass
 
 
-def _supports_color():
-    """True se a saida aceita ANSI (TTY, ou Windows com VT ativo)."""
-    if platform.system() == "Windows":
-        return True
-    try:
-        return sys.stdout.isatty()
-    except Exception:
-        return True
-
-
 def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE):
-    """Imprime nome + versao + data do script, em destaque colorido quando possivel.
+    """Imprime nome + versao + data do script, em destaque colorido.
 
     Usado no inicio do orquestrador (main) e no init() de cada repo_setup.py.
     """
     _setup_windows_console()
     stamp = f"v{version} ({date})" if date else f"v{version}"
-    if _supports_color():
-        print(f"{ANSI_BOLD}{accent}== {name} {stamp} =={ANSI_RESET}")
-    else:
-        print(f"== {name} {stamp} ==")
+    print(f"{ANSI_BOLD}{accent}== {name} {stamp} =={ANSI_RESET}")
 
 
 # ============================================================================
@@ -281,24 +268,14 @@ class SetupBase(ABC):
             return False
 
     def sudo_ensure(self):
-        """Garante ticket sudo valido. Se expirou, orienta o usuario a renovar.
-
-        Preserva o espaco do usuario (nao roda como root); apenas mantem o
-        carimbo sudo ativo. Retorna False se nao for possivel renovar.
-        """
+        """Tenta renovar o ticket sudo. Retorna False se nao for possivel."""
         if self._sudo_ok():
             return True
-        print("  ⚠️ Privilegios sudo expirados.")
-        print("  Execute 'sudo -v' em OUTRO terminal e tecle ENTER aqui.")
-        try:
-            input()
-        except EOFError:
-            print("  ❌ Sem terminal interativo. Rode o script num terminal com TTY.")
-            return False
+        self._run(["sudo", "-v"])
         if self._sudo_ok():
             print("  ✅ Sudo renovado.")
             return True
-        print("  ❌ Sudo ainda invalido. Abortando fase.")
+        print("  ⚠️ Sudo indisponivel; esta fase pode falhar.")
         return False
 
     # ── Instalacao de software ────────────────────────────────────────────
@@ -456,36 +433,33 @@ class SetupBase(ABC):
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
-    def _resolve_shortcut_target(self, lnk_path):
-        """Resolve o destino de um atalho .lnk (via WScript.Shell)."""
-        ps = ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut('
-              f'"{lnk_path}"); Write-Output $s.TargetPath')
-        result = self._run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True)
-        target = (result.stdout or "").strip()
-        if target and os.path.isfile(target):
-            return target
-        return ""
+    def _find_in_program_files(self, name):
+        """Windows: procura FreeCAD/KiCad em Program Files (nao estao no PATH).
 
-    def _find_shortcut_binary(self, name):
-        """Windows: localiza o executavel via atalho da area de trabalho.
-
-        FreeCAD/KiCad criam atalho no Desktop mas nao entram no PATH.
+        Padrao: C:\\Program Files\\<App>\\bin\\<app>.exe ou
+        C:\\Program Files\\<App>\\<versao>\\bin\\<app>.exe.
         """
         if self.os_type != "windows":
             return ""
-        desktop_dirs = [
-            os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"),
-            os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop"),
-        ]
-        for d in desktop_dirs:
-            if not os.path.isdir(d):
-                continue
-            for fn in sorted(os.listdir(d)):
-                if fn.lower().endswith(".lnk") and name.lower() in fn.lower():
-                    target = self._resolve_shortcut_target(os.path.join(d, fn))
-                    if target:
-                        return target
+        exe = name + ".exe"
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        try:
+            for entry in os.scandir(pf):
+                if not entry.is_dir() or name.lower() not in entry.name.lower():
+                    continue
+                candidate = os.path.join(entry.path, "bin", exe)
+                if os.path.isfile(candidate):
+                    return candidate
+                try:
+                    for sub in os.scandir(entry.path):
+                        if sub.is_dir():
+                            candidate = os.path.join(sub.path, "bin", exe)
+                            if os.path.isfile(candidate):
+                                return candidate
+                except OSError:
+                    pass
+        except OSError:
+            pass
         return ""
 
     def assert_executable(self, name, timeout=20):
@@ -495,15 +469,11 @@ class SetupBase(ABC):
         padrao, ou o mapeado em _VERSION_CMD). FALHA somente se o binario
         nao existir. Se a checagem de versao falhar/timeout, registra o
         executavel como OK com aviso (instalado nao e falha).
-        No Windows, se nao estiver no PATH, resolve via atalho do Desktop.
+        No Windows, se nao estiver no PATH, resolve em Program Files.
         """
         binary = shutil.which(name)
         if not binary and self.os_type == "windows":
-            binary = self._find_shortcut_binary(name)
-            if binary:
-                bindir = os.path.dirname(binary)
-                os.environ["PATH"] = bindir + os.pathsep + os.environ["PATH"]
-                print(f"  ✅ {name}: resolvido via atalho ({binary})")
+            binary = self._find_in_program_files(name)
         if not binary:
             self.results[name] = False
             return False
@@ -545,18 +515,22 @@ class SetupBase(ABC):
             content = json.dumps(content, indent=4)
         path = Path(path)
         if sudo:
-            self._run(["bash", "-c", f"cat <<'EOF' | sudo tee {path}\n{content}\nEOF"])
+            proc = subprocess.Popen(["sudo", "tee", str(path)],
+                                    stdin=subprocess.PIPE,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, text=True)
+            proc.communicate(input=content)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
 
     def append_line(self, file_path, line):
         """Adiciona uma linha ao final de um arquivo."""
-        self._run(["bash", "-c", f"echo '{line}' | sudo tee -a {file_path}"])
-
-    def create_symlink(self, target, link):
-        """Cria um symlink (sudo)."""
-        self._run(["sudo", "ln", "-sf", target, link])
+        proc = subprocess.Popen(["sudo", "tee", "-a", file_path],
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, text=True)
+        proc.communicate(input=line + "\n")
 
     # ── Flutter ───────────────────────────────────────────────────────────
 
@@ -586,7 +560,7 @@ class SetupBase(ABC):
     def _install_flutter_git(self):
         """Instala o Flutter SDK via git clone (canonico, cross-platform).
 
-        Usa `git clone -b stable` do repositorio oficial — mesmo metodo
+        Usa `git clone -b stable` do repositorio oficial -- mesmo metodo
         usado pela extensao Flutter do VS Code ao fazer "Download SDK".
         O git ja e pre-requisito do orquestrador (instalado antes de tudo).
         Retorna True se o SDK ficou disponivel no PATH.
@@ -871,15 +845,6 @@ class SetupBase(ABC):
 
     # ── Dependencias de build (usadas pelas derivadas) ────────────────────
 
-    def _venv_available(self):
-        """True se o modulo venv esta disponivel (pacote python3-venv)."""
-        try:
-            return subprocess.run([sys.executable, "-c", "import venv"],
-                                  capture_output=True).returncode == 0
-        except Exception as exc:
-            print(f"  ⚠️ Falha ao checar modulo venv: {exc}")
-            return False
-
     def _platformio_bin_dir(self):
         """Diretorio dos executaveis do PlatformIO (venv do penv)."""
         base = Path.home() / ".platformio" / "penv"
@@ -904,10 +869,6 @@ class SetupBase(ABC):
         """
         bin_dir = self._platformio_bin_dir()
         pio = shutil.which("pio") or str(self._platformio_exe(bin_dir))
-        if shutil.which("pio") or os.path.isfile(pio):
-            self._platformio_add_to_path(bin_dir)
-            print("  ✅ PlatformIO disponivel")
-            return pio
         # O instalador do PlatformIO cria um venv; garante o python3-venv
         if not self._venv_available():
             print("  Instalando python3-venv (necessario para o PlatformIO)...")
