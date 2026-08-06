@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.8"
+SETUP_VERSION = "1.3.0"
 SETUP_DATE = "2026-08-06"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -412,6 +412,7 @@ class SetupBase(ABC):
                 continue
             self._run([
                 "winget", "install", "--id", winget_id, "-e",
+                "--source", "winget",
                 "--accept-package-agreements", "--accept-source-agreements",
             ])
         self._refresh_path()
@@ -433,33 +434,25 @@ class SetupBase(ABC):
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
-    def _find_in_program_files(self, name):
-        """Windows: procura FreeCAD/KiCad em Program Files (nao estao no PATH).
+    def _find_windows_shortcut(self, name):
+        """Windows: confirma instalacao via atalho no Desktop (sem COM).
 
-        Padrao: C:\\Program Files\\<App>\\bin\\<app>.exe ou
-        C:\\Program Files\\<App>\\<versao>\\bin\\<app>.exe.
+        Apenas verifica a existencia do atalho — instaladores de FreeCAD/KiCad
+        criam o atalho e, recem-instalado, o usuario nao o remove.
         """
         if self.os_type != "windows":
             return ""
-        exe = name + ".exe"
-        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-        try:
-            for entry in os.scandir(pf):
-                if not entry.is_dir() or name.lower() not in entry.name.lower():
-                    continue
-                candidate = os.path.join(entry.path, "bin", exe)
-                if os.path.isfile(candidate):
-                    return candidate
-                try:
-                    for sub in os.scandir(entry.path):
-                        if sub.is_dir():
-                            candidate = os.path.join(sub.path, "bin", exe)
-                            if os.path.isfile(candidate):
-                                return candidate
-                except OSError:
-                    pass
-        except OSError:
-            pass
+        for d in (os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"),
+                  os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"),
+                               "Desktop")):
+            if not os.path.isdir(d):
+                continue
+            try:
+                for fn in os.listdir(d):
+                    if fn.lower().endswith(".lnk") and name.lower() in fn.lower():
+                        return os.path.join(d, fn)
+            except OSError:
+                continue
         return ""
 
     def assert_executable(self, name, timeout=20):
@@ -473,7 +466,7 @@ class SetupBase(ABC):
         """
         binary = shutil.which(name)
         if not binary and self.os_type == "windows":
-            binary = self._find_in_program_files(name)
+            binary = self._find_windows_shortcut(name)
         if not binary:
             self.results[name] = False
             return False
@@ -701,6 +694,7 @@ class SetupBase(ABC):
             # instala de forma confiavel e registra o PATH do sistema.
             self._run(["winget", "install", "--id",
                        "EclipseAdoptium.Temurin.17.JDK", "-e",
+                       "--source", "winget",
                        "--accept-package-agreements", "--accept-source-agreements"])
             self._refresh_path()
             return shutil.which("java") is not None
@@ -869,10 +863,6 @@ class SetupBase(ABC):
         """
         bin_dir = self._platformio_bin_dir()
         pio = shutil.which("pio") or str(self._platformio_exe(bin_dir))
-        # O instalador do PlatformIO cria um venv; garante o python3-venv
-        if not self._venv_available():
-            print("  Instalando python3-venv (necessario para o PlatformIO)...")
-            self._run(["sudo", "apt", "install", "-y", "python3-venv"])
         print("  Instalando PlatformIO Core...")
         url = ("https://raw.githubusercontent.com/platformio/"
                "platformio-core-installer/master/get-platformio.py")
@@ -954,8 +944,13 @@ class SetupBase(ABC):
             self._run(["sudo", "apt", "install", "-y",
                        "clang", "cmake", "ninja-build", "g++", "pkg-config",
                        "libgtk-3-dev"])
+
+    def install_flutter_build_tools(self):
+        """Instala o toolchain de build do Flutter para o SO atual (ternario)."""
+        if self.os_type == "linux":
+            self.install_flutter_linux_tools()
         elif self.os_type == "windows":
-            print("  ⚠️ build Linux nao se aplica no Windows")
+            self.install_flutter_windows_tools()
 
     def install_flutter_windows_tools(self):
         """Instala o toolchain do Windows exigido pelo Flutter (VS Build Tools).
@@ -974,6 +969,7 @@ class SetupBase(ABC):
         self._run([
             "winget", "install", "--id",
             "Microsoft.VisualStudio.2022.BuildTools", "-e",
+            "--source", "winget",
             "--accept-package-agreements", "--accept-source-agreements",
             "--override",
             "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools "
@@ -1067,6 +1063,7 @@ def _windows_prepare_terminal():
         print("  Instalando Windows Terminal...")
         subprocess.run(
             ["winget", "install", "--id", "Microsoft.WindowsTerminal", "-e",
+             "--source", "winget",
              "--accept-package-agreements", "--accept-source-agreements"],
             text=True)
         _windows_refresh_path()
@@ -1668,6 +1665,7 @@ def main():
             subprocess.run(["sudo", "apt", "install", "-y", "git"], text=True)
         elif os_type == "windows":
             subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
+                           "--source", "winget",
                            "--accept-package-agreements", "--accept-source-agreements"],
                           text=True)
             _windows_refresh_path()
