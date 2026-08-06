@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.2.2"
-SETUP_DATE = "2026-08-05"
+SETUP_VERSION = "1.2.4"
+SETUP_DATE = "2026-08-06"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -643,8 +643,8 @@ class SetupBase(ABC):
     def setup_android(self):
         """Instala JDK + KVM + cmdline-tools + SDK + aceita licencas.
 
-        A aceitacao de licencas acontece DEPOIS do SDK instalado e sem
-        prompt interativo (arquivos gravados em <SDK>/licenses/).
+        As licencas sao aprovadas ANTES de baixar qualquer pacote ou imagem
+        de sistema, sem prompt interativo (arquivos em <SDK>/licenses/).
         """
         self._android_install_jdk()
         self._android_setup_kvm()
@@ -655,8 +655,8 @@ class SetupBase(ABC):
         sdkmanager = self._android_ensure_sdkmanager(sdk_root)
         if not sdkmanager:
             return False
-        self._android_install_sdk(sdkmanager)
         self._android_accept_licenses(sdk_root)
+        self._android_install_sdk(sdkmanager)
         return True
 
     def _cmdline_bin(self, sdk_root, name):
@@ -1022,19 +1022,26 @@ def _windows_prepare_terminal():
                 capture_output=True, text=True)
         print("  ✅ Windows Terminal instalado e definido como terminal padrao")
         # So consoles NOVOS abrem no WT; esta janela ja esta aberta.
-        # Se nao estamos no WT nem como admin, re-abre em WT: a subsequente
-        # elevacao (ShellExecuteW) usara o terminal padrao = WT.
+        # Se nao estamos no WT nem como admin, abre diretamente um WT
+        # ADMIN (via Start-Process RunAs wt.exe). Assim a janela elevada
+        # ja abre no Windows Terminal com suporte a emojis — sem janela
+        # intermediaria nem console antigo.
         if not os.environ.get("WT_SESSION"):
             try:
                 is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
             except Exception:
                 is_admin = False
             if not is_admin:
+                wt_exe = shutil.which("wt")
                 script_path = os.path.abspath(sys.argv[0])
                 script_args = subprocess.list2cmdline(sys.argv[1:])
-                cmd = f'"{sys.executable}" {script_path} {script_args}'
-                subprocess.run(["wt", "-w", "new", "powershell", "-NoExit", "-Command", cmd])
-                print("  🔄 Reabrindo no Windows Terminal...")
+                inner = f'"{sys.executable}" {script_path} {script_args}'
+                # A execucao interna precisa escapar aspas para o PowerShell
+                inner_escaped = inner.replace('"', '\\"')
+                subprocess.run(["powershell", "-NoProfile", "-Command",
+                    f'Start-Process -Verb RunAs -FilePath "{wt_exe}"'
+                    f' -ArgumentList \\"-w new powershell -NoExit -Command \\"{inner_escaped}\\"\\"'])
+                print("  🔄 Abrindo Windows Terminal como administrador...")
                 sys.exit(0)
             print("  ⚠️ Esta janela continua no console atual. Abra uma NOVA "
                   "janela do Windows Terminal (ou rode de novo) p/ ver emojis.")
