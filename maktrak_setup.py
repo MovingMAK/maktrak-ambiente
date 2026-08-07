@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.3"
+SETUP_VERSION = "1.3.4"
 SETUP_DATE = "2026-08-07"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -247,10 +247,6 @@ class SetupBase(ABC):
         # code, pio, ...) fiquem visiveis aos comandos seguintes.
         if self.os_type == "windows" and self._cmd_may_change_path(cmd):
             self._refresh_path()
-        # Instrumentacao (temporaria): diagnostico verbose quando pio falha
-        # (investiga "Failed to install Python dependencies into penv").
-        if result.returncode != 0 and _is_pio_cmd(cmd):
-            _pio_diagnose(cmd, cwd)
         return result
 
     # ── Sudo ─────────────────────────────────────────────────────────────
@@ -1057,70 +1053,6 @@ class SetupBase(ABC):
 # ============================================================================
 # FUNCOES DO ORQUESTRADOR (standalone - nao estao na SetupBase)
 # ============================================================================
-
-def _is_pio_cmd(cmd):
-    """True se o comando e do PlatformIO (pio/pio.exe)."""
-    if not cmd:
-        return False
-    base = str(cmd[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
-    return base in ("pio", "pio.exe")
-
-
-def _pio_diagnose(cmd, cwd):
-    """Instrumentacao (temporaria): grava diagnostico verbose do pio.
-
-    Investiga "Failed to install Python dependencies into penv" no
-    Windows/Python 3.14. Grava info do penv + `pio <cmd> -v` em
-    ~/pio_verbose.log e imprime o contexto do erro (antes do marcador).
-    """
-    log = Path.home() / "pio_verbose.log"
-    penv = Path.home() / ".platformio" / "penv"
-    py = penv / ("Scripts" if platform.system() == "Windows" else "bin") / "python"
-    print(f"  🔍 pio falhou; gravando diagnostico verbose em {log}")
-    try:
-        with open(log, "w", encoding="utf-8", errors="replace") as f:
-            f.write("== penv info ==\n")
-            if os.path.isfile(py):
-                for info in ([str(py), "--version"],
-                             [str(py), "-m", "pip", "list"]):
-                    try:
-                        r = subprocess.run(info, capture_output=True, text=True,
-                                           timeout=120)
-                        f.write(r.stdout + r.stderr + "\n")
-                    except Exception as exc:
-                        f.write(f"  (erro: {exc})\n")
-            else:
-                f.write("  (penv python nao encontrado)\n")
-            f.write("\n== pio -v ==\n")
-        vcmd = cmd[:]
-        if "-v" not in vcmd and "--verbose" not in vcmd:
-            vcmd.append("-v")
-        with open(log, "a", encoding="utf-8", errors="replace") as f:
-            try:
-                subprocess.run(vcmd, cwd=cwd, stdout=f,
-                               stderr=subprocess.STDOUT, timeout=2400)
-            except subprocess.TimeoutExpired:
-                f.write("\n== timeout 40min ==\n")
-            except Exception as exc:
-                f.write(f"\n== falha ao rodar verbose: {exc} ==\n")
-    except Exception as exc:
-        print(f"  ⚠️ falha no diagnostico: {exc}")
-        return
-    try:
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return
-    idx = next((i for i, l in enumerate(lines)
-                if "Failed to install Python dependencies" in l), None)
-    if idx is None:
-        print("  ⚠️ marcador nao encontrado; ultimas 30 linhas do log:")
-        tail = lines[-30:]
-    else:
-        print("  ---- contexto do erro (pip) ----")
-        tail = lines[max(0, idx - 40):idx + 1]
-    for l in tail:
-        print(f"    {l}"[:160])
-
 
 def _windows_prepare_terminal():
     """Windows: garante o Windows Terminal instalado e como terminal padrao.
