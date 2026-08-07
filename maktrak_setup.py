@@ -18,9 +18,9 @@ import importlib.util
 import urllib.request
 import ctypes
 import threading
+import signal
 from pathlib import Path
 from abc import ABC, abstractmethod
-from urllib.parse import quote, unquote
 from urllib.parse import quote, unquote
 
 
@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.1"
+SETUP_VERSION = "1.3.3"
 SETUP_DATE = "2026-08-07"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -247,6 +247,10 @@ class SetupBase(ABC):
         # code, pio, ...) fiquem visiveis aos comandos seguintes.
         if self.os_type == "windows" and self._cmd_may_change_path(cmd):
             self._refresh_path()
+        # Instrumentacao (temporaria): diagnostico verbose quando pio falha
+        # (investiga "Failed to install Python dependencies into penv").
+        if result.returncode != 0 and _is_pio_cmd(cmd):
+            _pio_diagnose(cmd, cwd)
         return result
 
     # ── Sudo ─────────────────────────────────────────────────────────────
@@ -593,6 +597,61 @@ class SetupBase(ABC):
         """Aplica configuracoes no Flutter (ex: --enable-web)."""
         self._ensure_flutter_path()
         self._run(["flutter", "config"] + opts)
+
+    def flutter_run_headless(self, path, device="flutter-tester", timeout=150):
+        """Smoke test: lanca o app de verdade SEM tela (headless).
+
+        - `flutter-tester`: engine headless (desktop) — nenhuma janela aparece.
+        - `web-server`: serve o build web sem abrir navegador.
+        Sucesso = o flutter confirma a execucao (marker) antes do timeout.
+        Encerra o processo (grupo) ao final. Retorna True se subiu.
+        """
+        self._ensure_flutter_path()
+        markers = ("Flutter run key commands", "is being served at")
+        try:
+            proc = subprocess.Popen(
+                ["flutter", "run", "-d", device, "--no-pub"],
+                cwd=str(path),
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                start_new_session=True,
+            )
+        except Exception as exc:
+            print(f"  ❌ Falha ao iniciar flutter run: {exc}")
+            return False
+        output = []
+        threading.Thread(target=lambda: output.append(proc.stdout.read()),
+                         daemon=True).start()
+        try:
+            start = time.time()
+            while time.time() - start < timeout:
+                text = "".join(output)
+                if any(m in text for m in markers):
+                    print(f"  ✅ App subiu ({device}), encerrando...")
+                    return True
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.5)
+            tail = "".join(output)[-600:]
+            print(f"  ⚠️ {device}: sem confirmacao de execucao")
+            for line in tail.strip().splitlines()[-4:]:
+                print(f"      {line}"[:140])
+            return False
+        finally:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    proc.kill()
 
     # ── Android SDK ───────────────────────────────────────────────────────
 
@@ -998,6 +1057,70 @@ class SetupBase(ABC):
 # ============================================================================
 # FUNCOES DO ORQUESTRADOR (standalone - nao estao na SetupBase)
 # ============================================================================
+
+def _is_pio_cmd(cmd):
+    """True se o comando e do PlatformIO (pio/pio.exe)."""
+    if not cmd:
+        return False
+    base = str(cmd[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return base in ("pio", "pio.exe")
+
+
+def _pio_diagnose(cmd, cwd):
+    """Instrumentacao (temporaria): grava diagnostico verbose do pio.
+
+    Investiga "Failed to install Python dependencies into penv" no
+    Windows/Python 3.14. Grava info do penv + `pio <cmd> -v` em
+    ~/pio_verbose.log e imprime o contexto do erro (antes do marcador).
+    """
+    log = Path.home() / "pio_verbose.log"
+    penv = Path.home() / ".platformio" / "penv"
+    py = penv / ("Scripts" if platform.system() == "Windows" else "bin") / "python"
+    print(f"  🔍 pio falhou; gravando diagnostico verbose em {log}")
+    try:
+        with open(log, "w", encoding="utf-8", errors="replace") as f:
+            f.write("== penv info ==\n")
+            if os.path.isfile(py):
+                for info in ([str(py), "--version"],
+                             [str(py), "-m", "pip", "list"]):
+                    try:
+                        r = subprocess.run(info, capture_output=True, text=True,
+                                           timeout=120)
+                        f.write(r.stdout + r.stderr + "\n")
+                    except Exception as exc:
+                        f.write(f"  (erro: {exc})\n")
+            else:
+                f.write("  (penv python nao encontrado)\n")
+            f.write("\n== pio -v ==\n")
+        vcmd = cmd[:]
+        if "-v" not in vcmd and "--verbose" not in vcmd:
+            vcmd.append("-v")
+        with open(log, "a", encoding="utf-8", errors="replace") as f:
+            try:
+                subprocess.run(vcmd, cwd=cwd, stdout=f,
+                               stderr=subprocess.STDOUT, timeout=2400)
+            except subprocess.TimeoutExpired:
+                f.write("\n== timeout 40min ==\n")
+            except Exception as exc:
+                f.write(f"\n== falha ao rodar verbose: {exc} ==\n")
+    except Exception as exc:
+        print(f"  ⚠️ falha no diagnostico: {exc}")
+        return
+    try:
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return
+    idx = next((i for i, l in enumerate(lines)
+                if "Failed to install Python dependencies" in l), None)
+    if idx is None:
+        print("  ⚠️ marcador nao encontrado; ultimas 30 linhas do log:")
+        tail = lines[-30:]
+    else:
+        print("  ---- contexto do erro (pip) ----")
+        tail = lines[max(0, idx - 40):idx + 1]
+    for l in tail:
+        print(f"    {l}"[:160])
+
 
 def _windows_prepare_terminal():
     """Windows: garante o Windows Terminal instalado e como terminal padrao.
