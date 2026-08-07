@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.0"
-SETUP_DATE = "2026-08-06"
+SETUP_VERSION = "1.3.1"
+SETUP_DATE = "2026-08-07"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -85,7 +85,6 @@ def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
 
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 SUDO_KEEPALIVE_INTERVAL = 120  # segundos entre renovacoes do ticket sudo
-NGINX_WINDOWS_VERSION = "1.30.4"  # stable atual (nginx.org/en/download.html)
 
 REPOSITORIES = {
     "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
@@ -113,10 +112,8 @@ DEV_REPOSITORIES = {
     "app":        ["app"],
 }
 
-PROD_MODULES = {
-    "servidor-prod": ["vscode"],
-    "ia": [],
-}
+# Producao (servidor-prod, IA/Ollama) e PROXIMA ETAPA; ainda sem modulos.
+PROD_MODULES = {}
 
 # ============================================================================
 # _PKG - CATALOGO DE SOFTWARE CONHECIDO
@@ -133,7 +130,6 @@ _PKG = {
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
     "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
     "kicad": {"linux": ('apt', 'ppa:kicad/kicad-10.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
-    "nginx": {"linux": ('apt', '', 'nginx'), "windows": ''},  # Windows: install_nginx_windows()
 
     "postgresql": {"linux": ('apt', '', 'postgresql'), "windows": 'PostgreSQL.PostgreSQL'},
     "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
@@ -151,7 +147,6 @@ _PKG = {
 _VERSION_CMD = {
     "freecad": None,                         # GUI; --version trava sem display
     "kicad": ("kicad-cli", ["--version"]),   # CLI rapido, nao abre a GUI
-    "nginx": ("nginx", ["-v"]),              # nginx so aceita -v / -V
 }
 
 
@@ -905,7 +900,7 @@ class SetupBase(ABC):
 
         Evita PEP 668 (externally-managed) e a falta do pip3 do sistema.
         `python` permite usar um interpretador especifico (ex.: Python 3.12)
-        quando o pacote nao suporta o Python do sistema (ex.: open-webui).
+        quando o pacote nao suporta o Python do sistema.
         Retorna o diretorio bin do venv (para localizar executaveis como
         `uvicorn`) ou None em caso de falha (pip nao instalou com sucesso).
         """
@@ -975,51 +970,6 @@ class SetupBase(ABC):
             "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools "
             "--includeRecommended",
         ])
-
-    def install_nginx_windows(self):
-        """Instala nginx no Windows a partir do zip oficial (sem winget).
-
-        O nginx nao possui pacote winget; baixa o zip do nginx.org, extrai em
-        %ProgramFiles%\nginx e adiciona o diretorio ao PATH (processo e usuario).
-        Retorna True se o nginx ficar disponivel no PATH.
-        """
-        if self.os_type != "windows":
-            return False
-        if shutil.which("nginx"):
-            print("  ✅ nginx ja disponivel no PATH")
-            return True
-        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-        base = Path(program_files) / "nginx"
-        version = NGINX_WINDOWS_VERSION
-        url = f"https://nginx.org/download/nginx-{version}.zip"
-        zip_path = base / "nginx.zip"
-        print(f"  Baixando nginx {version} (zip oficial)...")
-        base.mkdir(parents=True, exist_ok=True)
-        try:
-            urllib.request.urlretrieve(url, zip_path)
-        except Exception as exc:
-            print(f"  ❌ Falha ao baixar nginx: {exc}")
-            return False
-        print("  Extraindo...")
-        try:
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(base)
-        except Exception as exc:
-            print(f"  ❌ Falha ao extrair nginx: {exc}")
-            return False
-        zip_path.unlink()
-        bin_dir = base / f"nginx-{version}"
-        if not os.path.isfile(bin_dir / "nginx.exe"):
-            print(f"  ❌ nginx.exe nao encontrado em {bin_dir}")
-            return False
-        os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ["PATH"]
-        ps = ("[Environment]::SetEnvironmentVariable('Path',"
-              " [Environment]::GetEnvironmentVariable('Path','User')"
-              f" + ';{bin_dir}', 'User')")
-        self._run(["powershell", "-NoProfile", "-Command", ps],
-                  capture_output=True)
-        print(f"  ✅ nginx instalado em {bin_dir} (adicionado ao PATH)")
-        return True
 
     # ── Fases abstratas - a derivada implementa as 4 ──────────────────────
 
@@ -1190,14 +1140,9 @@ def _sys_update_environment():
 
 
 def _ui_select_mode():
-    """Solicita ao usuario selecionar modo dev ou prod."""
-    while True:
-        c = input("\nModo? (1=dev, 2=prod): ").strip()
-        if c == "1":
-            return "dev"
-        elif c == "2":
-            return "prod"
-        print("Invalido. Digite 1 ou 2.")
+    """Solicita ao usuario o modo. Producao (servidor-prod/IA) e proxima etapa."""
+    print("\nModo: dev (producao e proxima etapa)")
+    return "dev"
 
 
 def _ui_select_components(items_dict, label):
@@ -1346,7 +1291,7 @@ def load_derived(repo_setup_path, component=None):
 
     Se a derivada expõe SETUP_CLASSES (mapa componente -> classe), usa a
     classe correspondente ao componente. Isso evita que um repo_setup.py com
-    varias classes (ex.: servidores: ServerSetup + IaSetup) pegue a classe
+    varias classes (ex.: servidores: ServerSetup + outras) pegue a classe
     errada por ordem alfabetica. Senao, retorna a primeira subclasse.
     """
     spec = importlib.util.spec_from_file_location(
@@ -1628,8 +1573,9 @@ def main():
     # Configura console (UTF-8 + ANSI) antes de qualquer saida
     _setup_windows_console()
     if platform.system() == "Windows":
-        # Instala/configura o Windows Terminal ANTES da elevacao, para que a
-        # janela admin (onde o setup roda) abra no WT com suporte a emojis.
+        # Le o PATH do registro (Machine+User) para enxergar ferramentas de
+        # execucoes anteriores (ex.: git), e prepara o Windows Terminal.
+        _windows_refresh_path()
         _windows_prepare_terminal()
     print("=" * 60)
     print_banner(SETUP_NAME, SETUP_VERSION)
@@ -1645,10 +1591,7 @@ def main():
 
     # 2. Interacao com usuario (todas as perguntas primeiro)
     mode = _ui_select_mode()
-    if mode == "dev":
-        components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
-    else:
-        components = _ui_select_components(PROD_MODULES, "Producao")
+    components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
 
     repos = _get_repositories_to_clone(mode, components)
     branch = _ui_select_branch() if repos else "main"
