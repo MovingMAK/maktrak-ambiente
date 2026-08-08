@@ -29,7 +29,7 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.5"
+SETUP_VERSION = "1.3.6"
 SETUP_DATE = "2026-08-08"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
@@ -600,7 +600,7 @@ class SetupBase(ABC):
         self._ensure_flutter_path()
         self._run(["flutter", "config"] + opts)
 
-    def flutter_run_headless(self, path, device="flutter-tester", timeout=150):
+    def flutter_run_headless(self, path, device="flutter-tester", timeout=300):
         """Smoke test: lanca o app de verdade SEM tela (headless).
 
         - `flutter-tester`: engine headless (desktop) — nenhuma janela aparece.
@@ -623,8 +623,12 @@ class SetupBase(ABC):
             print(f"  ❌ Falha ao iniciar flutter run: {exc}")
             return False
         output = []
-        threading.Thread(target=lambda: output.append(proc.stdout.read()),
-                         daemon=True).start()
+
+        def collect_output():
+            for line in iter(proc.stdout.readline, ""):
+                output.append(line)
+
+        threading.Thread(target=collect_output, daemon=True).start()
         try:
             start = time.time()
             while time.time() - start < timeout:
