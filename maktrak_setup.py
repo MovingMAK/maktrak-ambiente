@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.4"
-SETUP_DATE = "2026-08-07"
+SETUP_VERSION = "1.3.5"
+SETUP_DATE = "2026-08-08"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -224,17 +224,23 @@ class SetupBase(ABC):
 
     # ── Execucao low-level (privado) ──────────────────────────────────────
 
+    def _resolve_cmd(self, cmd):
+        """Windows: resolve .cmd/.bat para caminho completo (executa via cmd.exe).
+
+        Comandos como `code`/`flutter`/`sdkmanager` sao .cmd/.bat; por nome
+        puro o CreateProcess procura so .exe e falha com WinError 2.
+        """
+        if self.os_type == "windows" and cmd and "/" not in cmd[0] and "\\" not in cmd[0]:
+            resolved = shutil.which(cmd[0])
+            if resolved:
+                return [resolved] + list(cmd[1:])
+        return cmd
+
     def _run(self, cmd, capture_output=False, text=True, input_data=None, cwd=None):
         """Executa um comando e retorna subprocess.CompletedProcess."""
         if cmd and cmd[0] == "sudo" and not self._sudo_ok():
             print("  ⚠️ Ticket sudo expirado. Execute 'sudo -v' no terminal para renovar.")
-        # Windows: comandos como `code`/`flutter` sao .cmd/.bat. Resolver o
-        # caminho completo faz o subprocess executa-los via cmd.exe; por nome
-        # puro o CreateProcess procura so .exe e falha com WinError 2.
-        if self.os_type == "windows" and cmd and "/" not in cmd[0] and "\\" not in cmd[0]:
-            resolved = shutil.which(cmd[0])
-            if resolved:
-                cmd = [resolved] + list(cmd[1:])
+        cmd = self._resolve_cmd(cmd)
         try:
             result = subprocess.run(cmd, capture_output=capture_output, text=text,
                                     input=input_data, cwd=cwd)
@@ -604,9 +610,10 @@ class SetupBase(ABC):
         """
         self._ensure_flutter_path()
         markers = ("Flutter run key commands", "is being served at")
+        run_cmd = self._resolve_cmd(["flutter", "run", "-d", device, "--no-pub"])
         try:
             proc = subprocess.Popen(
-                ["flutter", "run", "-d", device, "--no-pub"],
+                run_cmd,
                 cwd=str(path),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
