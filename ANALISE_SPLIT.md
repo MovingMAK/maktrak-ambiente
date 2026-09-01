@@ -36,7 +36,7 @@ python3 /tmp/maktrak_setup.py
 | Por quê? | Exemplo |
 |---|---|
 | **Ownership por repositório** — cada time mantém suas regras de setup | Trocar `arduino-cli` por `platformio` não exige PR no `maktrak-ambiente` |
-| **Versionamento independente** — setups evoluem no ritmo de cada repo | `maktrak-hw` pode exigir FreeCAD 1.0 enquanto `maktrak-app` exige Flutter 3.x |
+| **Versionamento independente** — setups evoluem no ritmo de cada repo | `maktrak-hw` pode exigir FreeCAD 1.0 enquanto `maktrak-fw` exige PlatformIO |
 | **Setup seletivo** — dev de firmware não precisa de Flutter/Android | Roda só `maktrak-fw/repo_setup.py` via orquestrador |
 | **Complexidade localizada** — derivadas com 30-60 linhas vs. monolito 1250 | Fácil de entender, difícil de quebrar |
 | **Flexibilidade futura** — servidores web e IA terão lógica complexa de config/testar | YAML falharia (não tem if/loop/assert), Python imperativo resolve |
@@ -265,7 +265,6 @@ maktrak-ambiente/
 maktrak-hw/repo_setup.py        ← from maktrak_setup import SetupBase
 maktrak-fw/repo_setup.py        ← from maktrak_setup import SetupBase
 maktrak-server/repo_setup.py    ← from maktrak_setup import SetupBase
-maktrak-app/repo_setup.py       ← from maktrak_setup import SetupBase
 ```
 
 **Apenas `maktrak_setup.py` é baixado via curl.** As derivadas são clonadas e carregadas em tempo de execução. O `from maktrak_setup import SetupBase` dentro delas resolve porque o orquestrador registrou o módulo em `sys.modules`.
@@ -457,7 +456,7 @@ class HardwareSetup(SetupBase):
 - [ ] **Testar registro + carga** — `register_module()` → `load_derived()` → `instance = cls()` → fases
 - [ ] **Testar bootstrap completo** — curl → `maktrak_setup.py` → clone → registra → carrega → executa → relatório
 - [ ] **Testar Linux + Windows** com 1 repo piloto
-- [ ] **Migrar demais repos** — `maktrak-fw`, `maktrak-server`, `maktrak-app`
+- [ ] **Migrar demais repos** — `maktrak-fw`, `maktrak-server`
 
 ---
 
@@ -471,8 +470,7 @@ class HardwareSetup(SetupBase):
 | `*/repo_setup.py` | Script derivado em cada repo. Deve conter uma classe que herda de `SetupBase` e implementa as 4 fases. |
 | `maktrak-hw/repo_setup.py` | Setup de hardware (FreeCAD, KiCad, etc.) |
 | `maktrak-fw/repo_setup.py` | Setup de firmware (arduino-cli, platformio, etc.) |
-| `maktrak-server/repo_setup.py` | Setup de servidor (nginx, postgresql, flutter web, etc.) |
-| `maktrak-app/repo_setup.py` | Setup do app mobile (flutter, Android SDK, AVDs, etc.) |
+| `maktrak-server/repo_setup.py` | Setup de servidor (nginx, postgresql, flutter web/desktop, Android, etc.) |
 
 ### Contrato da derivada
 

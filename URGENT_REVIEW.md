@@ -102,11 +102,9 @@ ainda nao retorna um resultado composto para a derivada.
 - Direcao: `setup_android()` deve retornar `False` quando uma dependencia
 falhar; `create_avd()` deve retornar o status de criacao ou de existencia.
 
-Alem disso, `setup_android()` ja retorna `bool`, mas quem chama —
-`AppSetup.configure()` — ignora esse retorno e segue para `create_avd(...)`
-mesmo assim.
-
-- Codigo: `app/repo_setup.py`, `AppSetup.configure()`.
+Alem disso, `setup_android()` ja retorna `bool`, mas quem chama o ignora e
+segue para `create_avd(...)` mesmo assim. (O build Android agora vive no setup
+do servidor.)
 - Impacto: falha do SDK Android e mascarada; `create_avd` roda contra um SDK
   potencialmente incompleto.
 - Direcao: interromper `configure()` (ou marcar falha nos `results`) quando

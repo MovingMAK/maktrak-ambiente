@@ -91,7 +91,6 @@ REPOSITORIES = {
     "servidores":  "https://github.com/MovingMAK/maktrak-server.git",
     "hardware":    "https://github.com/MovingMAK/maktrak-hw.git",
     "firmware":    "https://github.com/MovingMAK/maktrak-fw.git",
-    "app":         "https://github.com/MovingMAK/maktrak-app.git",
 }
 
 DEV_MODULES = {
@@ -100,7 +99,6 @@ DEV_MODULES = {
     "eletronica": ["kicad"],
     "firmware":   ["vscode"],
     "servidor":   ["vscode"],
-    "app":        ["vscode"],
 }
 
 DEV_REPOSITORIES = {
@@ -109,7 +107,6 @@ DEV_REPOSITORIES = {
     "eletronica": ["hardware"],
     "firmware":   ["firmware"],
     "servidor":   ["servidores"],
-    "app":        ["app"],
 }
 
 # Producao (servidor-prod, IA/Ollama) e PROXIMA ETAPA; ainda sem modulos.
@@ -1536,9 +1533,15 @@ def _git_clone_to(url, branch, dest, name):
     return _git_run(cmd, name)
 
 
+def _repo_folder_name(repo_url):
+    """Nome da pasta de clone = nome do repositorio no final do URL."""
+    name = repo_url.rstrip("/").split("/")[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
 def _git_clone_one(repo_name, repo_url, branch="main"):
     """Clona ou atualiza um repositorio em uma branch especifica."""
-    dest = MOVINGMAK_REPOS_BASE / repo_name
+    dest = MOVINGMAK_REPOS_BASE / _repo_folder_name(repo_url)
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"  Clonando {repo_name} ({branch})...")
@@ -1702,7 +1705,9 @@ def main():
     instances = []
     for component in components:
         repo_key = _get_repo_key(component)
-        repo_path = MOVINGMAK_REPOS_BASE / repo_key / "repo_setup.py"
+        repo_url = REPOSITORIES.get(repo_key, "")
+        repo_path = (MOVINGMAK_REPOS_BASE / _repo_folder_name(repo_url)
+                     / "repo_setup.py")
         if not repo_path.exists():
             print(f"\n❌ repo_setup.py nao encontrado em {repo_path}")
             sys.exit(1)

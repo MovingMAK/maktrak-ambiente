@@ -27,7 +27,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";"
 3. Baixar e executar o script (linha única):
 
 ```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/docs-de-implementacao/maktrak_setup.py" -OutFile "$env:TEMP\maktrak_setup.py"; py "$env:TEMP\maktrak_setup.py"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/main/maktrak_setup.py" -OutFile "$env:TEMP\maktrak_setup.py"; py "$env:TEMP\maktrak_setup.py"
 ```
 
 ## Linux (Debian/Ubuntu/Xubuntu)
@@ -41,7 +41,7 @@ sudo apt update && sudo apt install -y python3 curl
 2. Baixar e executar o script (linha única):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/docs-de-implementacao/maktrak_setup.py" -o /tmp/maktrak_setup.py && python3 /tmp/maktrak_setup.py
+curl -fsSL "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/main/maktrak_setup.py" -o /tmp/maktrak_setup.py && python3 /tmp/maktrak_setup.py
 ```
 
 ## Observações

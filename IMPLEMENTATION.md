@@ -56,8 +56,7 @@ Requisitos e restrições
      - `ambiente` — https://github.com/MovingMAK/maktrak-ambiente.git
      - `servidores` — https://github.com/MovingMAK/maktrak-server.git
      - `hardware` — https://github.com/MovingMAK/maktrak-hw.git
-     - `firmware` — https://github.com/MovingMAK/maktrak-app.git
-     - `aplicativos` — https://github.com/MovingMAK/maktrak-app.git
+     - `firmware` — https://github.com/MovingMAK/maktrak-fw.git
 
 5. Instalação e validação de módulos
    - Para cada módulo habilitado (apenas o dos componentes selecionados):
