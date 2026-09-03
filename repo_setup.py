@@ -18,7 +18,9 @@ class AmbienteSetup(SetupBase):
         print("  Preparando ambiente base...")
 
     def install(self):
-        self.install_pkgs("vscode", "windows-terminal")
+        # Windows Terminal e instalado/configurado pelo bootstrap do
+        # orquestrador (_windows_prepare_terminal), nao pela derivada.
+        self.install_pkgs("vscode")
 
     def configure(self):
         # Extensoes universais sao instaladas pelo orquestrador

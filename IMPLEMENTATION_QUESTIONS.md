@@ -1,26 +1,22 @@
-# Perguntas e dúvidas para implementação do MakTrak setup
+# MakTrak Setup — Dúvidas em aberto
 
-Este documento lista apenas as questões ainda em aberto, depois das definições já incorporadas ao plano de implementação.
+Decisões ainda não fechadas para o instalador. As perguntas já resolvidas
+foram removidas ou absorvidas pelos documentos correspondentes
+(`IMPLEMENTATION.md`, `TESTING.md`, `ANDROID-SETUP.md`, `VSCODE_TIPS.md`).
 
-1. IA interna e ambiente de serviço
-1.1. Qual tipo de servidor IA devemos usar inicialmente?
-1.2. Sobre IA: estou incerto de como fazer, então trago alguns termos para discussão: vLLM, MLX, llama.cpp e Exo. Não sei se ajudam ou atrapalham, mas podem inspirar um caminho de implementação, que deve ser KISS.
+## Produção / IA (etapa pausada)
 
-2. Testes automatizados
-2.1. Devemos testar a instalação bem-sucedida de cada item?
-2.2. Existem testes que devem ser opcionais por limitação de ambiente?
+O modo `prod` está pausado e sem módulos definidos. Antes de retomá-lo:
 
-3. Lista mínima de componentes
-3.1. Há ferramentas ou SDKs adicionais obrigatórios para IA ou servidor-prod além do que já foi citado?
+1. Qual servidor IA usar inicialmente? (vLLM, MLX, llama.cpp, Exo ou outro —
+   KISS). Decisão de arquitetura.
+2. Que serviços o ambiente de produção deve entregar (API persistente,
+   reverse proxy nginx, health checks)? Define o futuro
+   `ProductionServerSetup` em `maktrak-server`.
 
-4. Referências
-4.1. Há mais recursos ou referências além do link fornecido ([https://share.google/aimode/jQQQFq4VttHpozdoF](https://share.google/aimode/jQQQFq4VttHpozdoF))?
+## Testes
 
-Por favor responda somente as questões em aberto para que eu mantenha o documento enxuto e alinhado com o plano de implementação.
-
-
-Rascunho:
-
-precisa já começar como administrador, no windows tb
-
-Vamos para o passo implementation 5. Reveja a tarefa e se precisar, faça perguntas adicionais.
+3. Ampliar a suíte automatizada (hoje só cobre escrita de credenciais git e
+   presença do git) para: seleção e clone de componentes, carga de
+   derivadas, propagação de falhas até o relatório e instalação Android.
+   Ver a seção "Testes necessários" em `URGENT_REVIEW.md`.

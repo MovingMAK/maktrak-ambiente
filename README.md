@@ -1,50 +1,77 @@
 # MakTrak Ambiente
 
-Configuração rápida de ambiente para desenvolvimento e produção no projeto MakTrak.
+Configuração rápida de ambiente para desenvolvimento e produção no projeto
+MakTrak. Um único instalador (`maktrak_setup.py`) é baixado e executado; ele
+atualiza o sistema, clona os repositórios dos componentes e configura cada um.
 
-## O que o `maktrak_setup.py` faz
+## Como executar
 
-O script:
-- detecta o sistema operacional e ferramentas disponíveis;
-- pergunta o modo de execução (`dev` ou `prod`) e os componentes;
-- coleta/reutiliza credenciais GitHub para repositórios privados;
-- clona/atualiza os repositórios necessários;
-- tenta associar cada repositório ao Sublime Merge após clone/pull.
-
-## Windows (PowerShell)
-
-1. Instalar Python 3 via `winget`:
+### Windows (PowerShell)
 
 ```powershell
-winget install python3 --silent --accept-source-agreements --accept-package-agreements
+irm "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/setup_windows.ps1" | iex
 ```
 
-2. Atualizar path de instalação:
-```powershell
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-```
+O bootstrap instala o Python 3 (se ausente), baixa o `maktrak_setup.py` e o
+executa.
 
-3. Baixar e executar o script (linha única):
+### Linux (bash)
 
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/main/maktrak_setup.py" -OutFile "$env:TEMP\maktrak_setup.py"; py "$env:TEMP\maktrak_setup.py"
-```
-
-## Linux (Debian/Ubuntu/Xubuntu)
-
-1. Instalar Python 3 e `curl`:
+Baixe e execute (sem usar pipe, para o instalador poder ler suas respostas):
 
 ```bash
-sudo apt update && sudo apt install -y python3 curl
+wget -q "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/setup-linux.sh" -O /tmp/setup-linux.sh && bash /tmp/setup-linux.sh
 ```
 
-2. Baixar e executar o script (linha única):
+(Se preferir `curl`: `curl -fsSL "<url>" -o /tmp/setup-linux.sh && bash /tmp/setup-linux.sh`.)
+O bootstrap garante o `python3`, baixa o `maktrak_setup.py` e o executa.
+(No macOS o mesmo script funciona via bash.)
 
-```bash
-curl -fsSL "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/refs/heads/main/maktrak_setup.py" -o /tmp/maktrak_setup.py && python3 /tmp/maktrak_setup.py
-```
+Os scripts de bootstrap vivem na raiz deste repositório
+(`setup_windows.ps1` e `setup-linux.sh`); quem preferir pode baixá-los e
+executá-los localmente.
+
+## O que o instalador faz
+
+- detecta o sistema operacional e prepara o terminal (Windows Terminal no
+  Windows);
+- exige privilégios elevados (sudo/administrador) e mantém o ticket sudo
+  vivo durante a execução;
+- atualiza o ambiente (`apt upgrade` / `winget upgrade --all`);
+- instala sempre o software base: git e Google Chrome (browser essencial);
+- pergunta quais componentes instalar (modo dev) e confirma o resumo;
+- coleta ou reutiliza credenciais GitHub para repositórios privados;
+- clona/atualiza os repositórios dos componentes selecionados;
+- executa o setup de cada componente e consolida um relatório final.
+
+## Arquitetura: classe base + scripts derivados
+
+A instalação é dividida em duas partes:
+
+- `maktrak_setup.py` — o único arquivo baixado. Contém o orquestrador
+  (privilégios, atualização do ambiente, seleção, clone e relatório) e a
+  classe base `SetupBase`, com o catálogo de software (`_PKG`) e os helpers
+  reutilizáveis (apt/snap/winget, git, Flutter, Android, VS Code etc.).
+- `repo_setup.py` — um por repositório de componente (`maktrak-ambiente`,
+  `maktrak-hw`, `maktrak-fw`, `maktrak-server`). Define uma classe que herda
+  de `SetupBase` e declara apenas o que é específico daquele componente.
+
+Cada script derivado implementa as mesmas 4 fases:
+
+- `init()` — anuncia e prepara o que será feito;
+- `install()` — instala os pacotes do componente;
+- `configure()` — aplica configurações e serviços;
+- `test()` — valida o resultado e alimenta o relatório.
+
+O orquestrador clona os repositórios selecionados, carrega o `repo_setup.py`
+de cada um, instancia a classe derivada e executa as 4 fases em sequência. A
+derivada importa `SetupBase` de `maktrak_setup`; como o orquestrador registra
+o próprio módulo em `sys.modules` antes de carregá-la, o import resolve sem
+dependência de caminho.
 
 ## Observações
 
-- O download do `maktrak_setup.py` é feito de repositório público.
-- Durante a execução, o script pode pedir usuário/token do GitHub para acessar repositórios privados da organização.
+- O download do instalador é feito do repositório público
+  `MovingMAK/maktrak-ambiente` (branch `main`).
+- Durante a execução, o script pode pedir usuário/token do GitHub para
+  acessar repositórios privados da organização.

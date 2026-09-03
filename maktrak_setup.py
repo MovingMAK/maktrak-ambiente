@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """MakTrak Setup - bootstrap + orquestrador multicomponente.
 
-Uso:
-    curl -fsSL "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/maktrak_setup.py" \
-        -o /tmp/maktrak_setup.py && python3 /tmp/maktrak_setup.py
+Este arquivo e baixado e executado pelos scripts de bootstrap do repositorio:
+    Windows   : setup_windows.ps1
+    Linux     : setup-linux.sh (funciona tambem no macOS via bash)
 """
 import sys
 import platform
@@ -94,7 +94,7 @@ REPOSITORIES = {
 }
 
 DEV_MODULES = {
-    "ambiente":   ["vscode", "windows-terminal"],
+    "ambiente":   ["vscode"],
     "mecanica":   ["freecad"],
     "eletronica": ["kicad"],
     "firmware":   ["vscode"],
@@ -123,7 +123,6 @@ PROD_MODULES = {}
 #   Windows: "<winget-id>"  (string)
 
 _PKG = {
-    "chromium": {"linux": ('snap', '', 'chromium'), "windows": ""},
     "freecad": {"linux": ('snap', '', 'freecad'), "windows": 'FreeCAD.FreeCAD'},
     "git": {"linux": ('apt', '', 'git'), "windows": 'Git.Git'},
     "kicad": {"linux": ('apt', 'ppa:kicad/kicad-10.0-releases', 'kicad'), "windows": 'KiCad.KiCad'},
@@ -132,7 +131,6 @@ _PKG = {
     "sqlite3":    {"linux": ('apt', '', 'sqlite3'), "windows": 'SQLite.SQLite'},
     "sublime-merge": {"linux": ('snap', 'classic', 'sublime-merge'), "windows": 'SublimeHQ.SublimeMerge'},
     "vscode": {"linux": ('snap', 'classic', 'code'), "windows": 'Microsoft.VisualStudioCode'},
-    "windows-terminal": {"linux": (), "windows": 'Microsoft.WindowsTerminal'},
 }
 
 # ============================================================================
@@ -184,7 +182,6 @@ class SetupBase(ABC):
 
     def __init__(self):
         self.os_type = self._detect_os()
-        self.managers = self._detect_package_managers()
         self.results = {}
 
     # ── Deteccao ──────────────────────────────────────────────────────────
@@ -201,23 +198,6 @@ class SetupBase(ABC):
         else:
             print(f"Sistema nao suportado: {system}")
             sys.exit(1)
-
-    def _detect_package_managers(self):
-        """Detecta gerenciadores de pacote disponiveis."""
-        managers = {}
-        if self.os_type == "linux":
-            if subprocess.run(["which", "snap"], capture_output=True).returncode == 0:
-                managers["snap"] = True
-            if subprocess.run(["which", "apt"], capture_output=True).returncode == 0:
-                managers["apt"] = True
-            if subprocess.run(["which", "pip"], capture_output=True).returncode == 0:
-                managers["pip"] = True
-        elif self.os_type == "windows":
-            if subprocess.run(["where", "winget"], capture_output=True).returncode == 0:
-                managers["winget"] = True
-            if subprocess.run(["where", "pip"], capture_output=True).returncode == 0:
-                managers["pip"] = True
-        return managers
 
     # ── Execucao low-level (privado) ──────────────────────────────────────
 
@@ -249,7 +229,7 @@ class SetupBase(ABC):
         # Renova o PATH para que executaveis recem-instalados (git, flutter,
         # code, pio, ...) fiquem visiveis aos comandos seguintes.
         if self.os_type == "windows" and self._cmd_may_change_path(cmd):
-            self._refresh_path()
+            _windows_refresh_path()
         return result
 
     # ── Sudo ─────────────────────────────────────────────────────────────
@@ -413,7 +393,7 @@ class SetupBase(ABC):
                 "--source", "winget",
                 "--accept-package-agreements", "--accept-source-agreements",
             ])
-        self._refresh_path()
+        _windows_refresh_path()
 
     @staticmethod
     def _cmd_may_change_path(cmd):
@@ -424,11 +404,6 @@ class SetupBase(ABC):
         joined = " ".join(tokens)
         # winget (install/upgrade) e instaladores em geral atualizam o PATH
         return "winget" in joined or "install" in tokens or "upgrade" in tokens
-
-    @staticmethod
-    def _refresh_path():
-        """Atualiza o PATH do processo atual no Windows (delega)."""
-        _windows_refresh_path()
 
     # ── Teste de executavel ───────────────────────────────────────────────
 
@@ -489,39 +464,6 @@ class SetupBase(ABC):
                 print(f"  ⚠️ {name}: nao foi possivel obter versao: {exc}")
         self.results[name] = True
         return True
-
-    # ── Sistema - servicos, configuracao, comandos ────────────────────────
-
-    def service_enable(self, name):
-        """Habilita um servico systemd."""
-        self._run(["sudo", "systemctl", "enable", name])
-
-    def service_restart(self, name):
-        """Reinicia um servico systemd."""
-        self._run(["sudo", "systemctl", "restart", name])
-
-    def write_config(self, path, content, sudo=True):
-        """Escreve um arquivo de configuracao (string ou dict JSON)."""
-        if isinstance(content, dict):
-            content = json.dumps(content, indent=4)
-        path = Path(path)
-        if sudo:
-            proc = subprocess.Popen(["sudo", "tee", str(path)],
-                                    stdin=subprocess.PIPE,
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, text=True)
-            proc.communicate(input=content)
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
-
-    def append_line(self, file_path, line):
-        """Adiciona uma linha ao final de um arquivo."""
-        proc = subprocess.Popen(["sudo", "tee", "-a", file_path],
-                                stdin=subprocess.PIPE,
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, text=True)
-        proc.communicate(input=line + "\n")
 
     # ── Flutter ───────────────────────────────────────────────────────────
 
@@ -754,7 +696,7 @@ class SetupBase(ABC):
                        "EclipseAdoptium.Temurin.17.JDK", "-e",
                        "--source", "winget",
                        "--accept-package-agreements", "--accept-source-agreements"])
-            self._refresh_path()
+            _windows_refresh_path()
             return shutil.which("java") is not None
         return True
 
@@ -998,7 +940,8 @@ class SetupBase(ABC):
     def install_flutter_linux_tools(self):
         """Instala as ferramentas exigidas pelo Flutter para build Linux."""
         if self.os_type == "linux":
-            print("  Instalando ferramentas de build Linux (clang, cmake, ninja, GTK3)...")
+            print("  Instalando ferramentas de build Linux "
+                  "(clang, cmake, ninja, GTK3)...")
             self._run(["sudo", "apt", "install", "-y",
                        "clang", "cmake", "ninja-build", "g++", "pkg-config",
                        "libgtk-3-dev"])
@@ -1200,6 +1143,100 @@ def _sys_update_environment():
         subprocess.run(["winget", "upgrade", "--all",
                         "--accept-package-agreements", "--accept-source-agreements"], text=True)
         _windows_refresh_path()
+
+
+def _install_chrome():
+    """Instala o Google Chrome — SEMPRE, em qualquer modo/componente."""
+    if platform.system() == "Linux":
+        if shutil.which("google-chrome-stable") or shutil.which("google-chrome"):
+            return
+        print("  Instalando Google Chrome...")
+        deb = "/tmp/google-chrome-stable_current_amd64.deb"
+        try:
+            urllib.request.urlretrieve(
+                "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+                deb)
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao baixar o Chrome: {exc}")
+            return
+        subprocess.run(["sudo", "apt-get", "update"], text=True)
+        subprocess.run(["sudo", "apt-get", "install", "-y", deb], text=True)
+    elif platform.system() == "Windows":
+        # So instala se ausente (evita baixar o MSI de 158 MB a cada execucao).
+        if os.path.exists(os.path.join(
+                os.environ.get("ProgramFiles", r"C:\Program Files"),
+                "Google", "Chrome", "Application", "chrome.exe")):
+            return
+        print("  Instalando Google Chrome...")
+        msi = os.path.join(os.environ.get("TEMP", "."),
+                           "googlechromestandaloneenterprise64.msi")
+        try:
+            urllib.request.urlretrieve(
+                "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi",
+                msi)
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao baixar o Chrome: {exc}")
+            return
+        subprocess.run(["msiexec", "/i", msi, "/qn", "/norestart"], text=True)
+        try:
+            os.remove(msi)
+        except OSError:
+            pass
+
+
+def _install_base_software():
+    """Instala o software base — SEMPRE, em qualquer modo/componente.
+
+    Software essencial no inicio, antes do prompt de credenciais GitHub:
+      - git    — pre-requisito (credential helper, clone); aborta se falhar;
+      - curl   — downloads do Flutter/Dart (sem fallback p/ wget);
+      - Chrome — browser.
+    O Windows Terminal fica no preparo do terminal (Windows), pois precisa
+    existir antes da janela elevada.
+    """
+    # git
+    if not _git_validate():
+        print("Instalando git...")
+        os_type = platform.system().lower()
+        if os_type.startswith("linux"):
+            # apt update antes do install: sem listas atualizadas o apt nao
+            # encontra o pacote em sistema recem-instalado.
+            subprocess.run(["sudo", "apt-get", "update"], text=True)
+            subprocess.run(["sudo", "apt", "install", "-y", "git"], text=True)
+        elif os_type == "windows":
+            subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
+                            "--source", "winget",
+                            "--accept-package-agreements", "--accept-source-agreements"],
+                           text=True)
+            _windows_refresh_path()
+        if not _git_validate():
+            print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
+            sys.exit(1)
+
+    # curl — o Flutter/Dart baixa o SDK com curl (sem fallback p/ wget)
+    if not shutil.which("curl"):
+        if platform.system().lower().startswith("linux"):
+            print("Instalando curl...")
+            # apt update antes do install: sem listas atualizadas o apt nao
+            # encontra o pacote ("Unable to locate package curl").
+            subprocess.run(["sudo", "apt-get", "update"], text=True)
+            rc = subprocess.run(
+                ["sudo", "apt-get", "install", "-y", "curl"],
+                text=True).returncode
+            # Revalida + aborta (mesmo padrao do git): se o apt falhar e o
+            # curl continuar ausente, para aqui com erro claro em vez de
+            # deixar as etapas seguintes (Flutter/Dart) falharem em cascata.
+            if rc != 0 or not shutil.which("curl"):
+                print("❌ Falha ao instalar curl. Rode manualmente "
+                      "'sudo apt-get install -y curl' e execute o setup de novo.")
+                sys.exit(1)
+            print("  ✅ curl instalado")
+        elif platform.system() == "Windows":
+            # No Windows 10/11 o curl.exe ja vem no System32; senao, manual.
+            print("  ⚠️ curl nao encontrado; instale manualmente")
+
+    # Chrome
+    _install_chrome()
 
 
 def _ui_select_mode():
@@ -1669,21 +1706,9 @@ def main():
         print("Instalacao cancelada.")
         sys.exit(0)
 
-    # 3. Garante git (pre-requisito para o credential helper e o clone)
-    if not _git_validate():
-        print("Instalando git...")
-        os_type = platform.system().lower()
-        if os_type.startswith("linux"):
-            subprocess.run(["sudo", "apt", "install", "-y", "git"], text=True)
-        elif os_type == "windows":
-            subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
-                           "--source", "winget",
-                           "--accept-package-agreements", "--accept-source-agreements"],
-                          text=True)
-            _windows_refresh_path()
-        if not _git_validate():
-            print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
-            sys.exit(1)
+    # 3. Software base — SEMPRE instalado (git + Chrome), antes do prompt de
+    #    credenciais GitHub (obter o token) e antes do clone.
+    _install_base_software()
 
     # 4. Credenciais GitHub (todos os dados do usuario obtidos primeiro)
     if repos:
@@ -1702,9 +1727,16 @@ def main():
     # 7. Executa as derivadas em ETAPAS (instalar -> extensoes -> configurar/testar).
     #    Assim o software (incluindo VS Code) e instalado ANTES das extensoes,
     #    e `code` ja esta disponivel quando as extensoes universais rodam.
-    instances = []
+    #    Cada repo_setup.py roda UMA vez: cenarios que compartilham repo (ex.:
+    #    mecanica e eletronica -> hardware) nao executam o mesmo script 2x.
+    instances = []      # pares (component, instance) — para o relatorio
+    by_repo = {}        # repo_key -> instance (executa as fases 1x por repo)
     for component in components:
         repo_key = _get_repo_key(component)
+        if repo_key in by_repo:
+            print(f"  ℹ️ {component} usa o repo {repo_key}; ja executado acima")
+            instances.append((component, by_repo[repo_key]))
+            continue
         repo_url = REPOSITORIES.get(repo_key, "")
         repo_path = (MOVINGMAK_REPOS_BASE / _repo_folder_name(repo_url)
                      / "repo_setup.py")
@@ -1713,8 +1745,9 @@ def main():
             sys.exit(1)
         cls = load_derived(repo_path, component)
         instance = cls()
+        by_repo[repo_key] = instance
         instances.append((component, instance))
-        print(f"\n── {component} (instalacao) ──")
+        print(f"\n── {repo_key} (instalacao) ──")
         # Garante ticket sudo valido antes de instalar
         instance.sudo_ensure()
         for phase in ["init", "install"]:
@@ -1728,10 +1761,9 @@ def main():
     print("\nInstalando extensoes VS Code universais...")
     _vscode_install_base()
 
-    # Configuracao e testes de cada derivada
-    all_results = {}
-    for component, instance in instances:
-        print(f"\n── {component} (configuracao/teste) ──")
+    # Configuracao e testes de cada derivada (1x por repo)
+    for repo_key, instance in by_repo.items():
+        print(f"\n── {repo_key} (configuracao/teste) ──")
         instance.sudo_ensure()
         for phase in ["configure", "test"]:
             try:
@@ -1739,7 +1771,10 @@ def main():
             except Exception as exc:
                 print(f"  ❌ Fase {phase} falhou: {exc}")
                 instance.results[f"phase:{phase}"] = False
-        all_results[component] = instance.results
+
+    # Relatorio consolidado (por componente selecionado)
+    all_results = {component: instance.results
+                   for component, instance in instances}
 
     # 7. Relatorio consolidado
     _ui_print_report(all_results)
