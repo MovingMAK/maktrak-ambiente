@@ -11,4 +11,4 @@ estar presente no workspace local, então use o link:
 - Valide mudança de setup em VM antes de aplicar na máquina real.
 - Os scripts são idempotentes e rodam como usuário normal, com sudo apenas
   internamente. `setup_windows.ps1` e `setup-linux.sh` devem andar em paridade.
-- Ao alterar o setup, bumpe `SETUP_VERSION` em `maktrak_setup.py`.
+- Ao alterar um script de setup, bumpe o `SETUP_VERSION` do próprio script.
