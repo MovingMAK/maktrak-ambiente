@@ -1,5 +1,7 @@
 # Diretivas gerais para agentes de IA
 
+Versão 1.0 — 2026-09-12 · ao alterar este arquivo, bumpe a versão
+
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
 `AGENTS.md` com as regras específicas, comandos e restrições locais.
@@ -70,6 +72,7 @@ documento.
   reformate arquivo inteiro e não imponha estilo ao código existente sem pedido
   explícito e revisão.
 - **Dependências e framework:** não adicione, troque ou atualize dependência, versão,
-  flag de compilação ou ferramenta de build sem consultar o líder técnico.
+  flag de compilação ou ferramenta de build por iniciativa própria. Se o humano pedir
+  uma mudança desse tipo, alerte-o a consultar o líder técnico.
 - **Comentários:** só o que o código não diz. Decisão de momento ou plano ("por ora
   desligado para focar em X") pertence ao TODO ou à documentação, não ao código.
