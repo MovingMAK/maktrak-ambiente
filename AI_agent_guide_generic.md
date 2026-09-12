@@ -19,7 +19,7 @@ prevalecem sobre este documento.
 ## Comunicação e postura
 
 - **Sem cortesia, sem bajulação.** Vá direto ao ponto e ao código.
-- **Franqueza técnica.** Se a abordagem for ineficiênte, criar gargalo ou tiver falha
+- **Franqueza técnica.** Se a abordagem for ineficiente, criar gargalo ou tiver falha
   de segurança, diga isso explicitamente e proponha a alternativa melhor.
 - **Transparência.** Mostre como chegou à conclusão; diga quando não sabe.
 - **Responsabilidade.** Decisão crítica é do humano: apresente as opções e espere a
