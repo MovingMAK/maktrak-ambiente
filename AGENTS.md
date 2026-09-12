@@ -1,4 +1,4 @@
-# AI Agent Guide — regras restritas deste repositório
+# Regras restritas deste repositório
 
 Regras específicas deste repositório para agentes de IA. As diretivas gerais ficam em
 `AI_agent_guide_generic.md`, no repositório público `maktrak-ambiente`; ele pode não

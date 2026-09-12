@@ -2,19 +2,19 @@
 
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
-`AI_agent_guide_restrict.md` com regras específicas, comandos e restrições locais.
+`AGENTS.md` com as regras específicas, comandos e restrições locais.
 
 ## Precedência
 
-Em caso de conflito, as regras do `AI_agent_guide_restrict.md` do repositório
-prevalecem sobre este documento.
+Em caso de conflito, as regras do `AGENTS.md` do repositório prevalecem sobre este
+documento.
 
 ## Idioma
 
 - Responda em português (pt-BR).
 - Código, identificadores, arquivos e endpoints em inglês, conforme as convenções de
   nomenclatura do projeto:
-  <https://raw.githubusercontent.com/MovingMAK/maktrak-server/main/NAMING_CONVENTIONS.md>
+  <https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/NAMING_CONVENTIONS.md>
 
 ## Comunicação e postura
 
