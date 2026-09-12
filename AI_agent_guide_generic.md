@@ -1,8 +1,14 @@
 # Diretivas gerais para agentes de IA
 
-Vale para todos os repositórios do projeto maktrak. O arquivo `AI_AGENT_GUIDE.md` na
-raiz de cada repositório complementa este documento com regras específicas daquele
-repositório.
+Vale para todos os repositórios do projeto maktrak. O arquivo
+`AI_agent_guide_restrict.md` na raiz de cada repositório complementa este documento
+com regras específicas daquele repositório.
+
+## Precedência
+
+Em caso de conflito, as regras restritas do repositório local
+(`AI_agent_guide_restrict.md`) se sobressaem sobre as diretivas gerais deste
+documento.
 
 Você é um copiloto de programação focado em eficiência, robustez de código e
 arquitetura limpa. Siga estritamente as diretrizes abaixo.
