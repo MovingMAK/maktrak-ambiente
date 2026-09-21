@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.6"
-SETUP_DATE = "2026-08-08"
+SETUP_VERSION = "1.3.7"
+SETUP_DATE = "2026-09-21"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -109,8 +109,19 @@ DEV_REPOSITORIES = {
     "servidor":   ["servidores"],
 }
 
-# Producao (servidor-prod, IA/Ollama) e PROXIMA ETAPA; ainda sem modulos.
-PROD_MODULES = {}
+# Producao: componentes do servidor em operacao (sem ferramentas de dev). A
+# lista de modulos e informativa (o que o orquestrador instalaria); os pacotes
+# de runtime da API vem do setup do proprio repo `servidores`.
+# "ia" (Ollama/Open WebUI) ainda NAO entra na selecao: depende das decisoes de
+# IMPLEMENTATION_QUESTIONS.md.
+PROD_MODULES = {
+    "servidor-prod": [],
+}
+
+PROD_REPOSITORIES = {
+    "servidor-prod": ["servidores"],
+    "ia":            ["servidores"],
+}
 
 # ============================================================================
 # _PKG - CATALOGO DE SOFTWARE CONHECIDO
@@ -1240,9 +1251,17 @@ def _install_base_software():
 
 
 def _ui_select_mode():
-    """Solicita ao usuario o modo. Producao (servidor-prod/IA) e proxima etapa."""
-    print("\nModo: dev (producao e proxima etapa)")
-    return "dev"
+    """Solicita ao usuario o modo: dev (desenvolvimento) ou prod (producao)."""
+    print("\n--- Selecionar modo ---")
+    print("1. dev   (desenvolvimento: ferramentas de build/edicao no host)")
+    print("2. prod  (producao: servidor em operacao, sem ferramentas de dev)")
+    while True:
+        escolha = input("Modo (1=dev, 2=prod) [default: dev]: ").strip().lower()
+        if escolha in ("", "1", "dev"):
+            return "dev"
+        if escolha in ("2", "prod"):
+            return "prod"
+        print(f"  ⚠️ Opcao invalida: {escolha!r} (use 1 ou 2)")
 
 
 def _ui_select_components(items_dict, label):
@@ -1270,6 +1289,11 @@ def _ui_confirm(mode, components, branch="main"):
     """Exibe resumo e solicita confirmacao do usuario."""
     print(f"\n--- Resumo da Instalacao ---")
     print(f"Modo: {mode}")
+    if mode == "prod":
+        # Producao ainda reaproveita as derivadas de dev (ver URGENT_REVIEW.md):
+        # os servicos de runtime (API persistente, reverse proxy) sao pendentes.
+        print("  ⚠️ Modo prod: os servicos de producao ainda nao estao "
+              "implementados; a configuracao reaproveita as derivadas de dev.")
     print(f"Branch: {branch}")
     print(f"Componentes: {', '.join(components)}")
     software = _get_software_for_components(components, mode)
@@ -1652,12 +1676,11 @@ def _git_register_sublime_merge(repo_path):
 
 
 def _get_repositories_to_clone(mode, components):
-    """Retorna lista de chaves de repositorios a clonar."""
-    if mode != "dev":
-        return []
+    """Retorna lista de chaves de repositorios a clonar (catalogo do modo)."""
+    source = DEV_REPOSITORIES if mode == "dev" else PROD_REPOSITORIES
     repos = set()
     for component in components:
-        repos.update(DEV_REPOSITORIES.get(component, []))
+        repos.update(source.get(component, []))
     return sorted(repos)
 
 
@@ -1697,7 +1720,9 @@ def main():
 
     # 2. Interacao com usuario (todas as perguntas primeiro)
     mode = _ui_select_mode()
-    components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
+    catalogo = DEV_MODULES if mode == "dev" else PROD_MODULES
+    rotulo = "Desenvolvimento" if mode == "dev" else "Producao"
+    components = _ui_select_components(catalogo, rotulo)
 
     repos = _get_repositories_to_clone(mode, components)
     branch = _ui_select_branch() if repos else "main"
@@ -1787,16 +1812,11 @@ def main():
 
 
 def _get_repo_key(component):
-    """Mapeia componente para chave de repositorio."""
-    dirs = DEV_REPOSITORIES.get(component)
+    """Mapeia componente para chave de repositorio (dev ou prod)."""
+    dirs = DEV_REPOSITORIES.get(component) or PROD_REPOSITORIES.get(component)
     if dirs:
         return dirs[0]
-    # Modo prod: servidor-prod e ia usam a config do repo servidores
-    PROD_REPOSITORIES = {
-        "servidor-prod": "servidores",
-        "ia": "servidores",
-    }
-    return PROD_REPOSITORIES.get(component, component)
+    return component
 
 
 if __name__ == "__main__":

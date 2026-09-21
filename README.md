@@ -39,10 +39,25 @@ executá-los localmente.
   vivo durante a execução;
 - atualiza o ambiente (`apt upgrade` / `winget upgrade --all`);
 - instala sempre o software base: git e Google Chrome (browser essencial);
-- pergunta quais componentes instalar (modo dev) e confirma o resumo;
+- pergunta o **modo** — `dev` (desenvolvimento) ou `prod` (produção) — os
+  componentes do modo e confirma o resumo;
 - coleta ou reutiliza credenciais GitHub para repositórios privados;
 - clona/atualiza os repositórios dos componentes selecionados;
 - executa o setup de cada componente e consolida um relatório final.
+
+### Modos
+
+| Modo | Uso | Componentes |
+|------|-----|-------------|
+| `dev` | desenvolvimento (ferramentas de build/edição no host) | `ambiente`, `mecanica`, `eletronica`, `firmware`, `servidor` |
+| `prod` | servidor em operação (sem ferramentas de dev) | `servidor-prod` |
+
+No modo `prod` os repositórios são clonados/atualizados igual ao `dev` (o
+servidor precisa do clone para ser configurado), mas os módulos vêm do catálogo
+`PROD_MODULES`. Os **serviços de produção** (API persistente, reverse proxy,
+health checks) ainda não estão implementados: hoje o `prod` reaproveita as
+derivadas de `dev`, e o aviso aparece no resumo da instalação. Pendências em
+`IMPLEMENTATION_QUESTIONS.md`.
 
 ## Arquitetura: classe base + scripts derivados
 

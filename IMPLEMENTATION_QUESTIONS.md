@@ -6,7 +6,9 @@ foram removidas ou absorvidas pelos documentos correspondentes
 
 ## Produção / IA (etapa pausada)
 
-O modo `prod` está pausado e sem módulos definidos. Antes de retomá-lo:
+O modo `prod` já é selecionável (componente `servidor-prod`, repo
+`servidores`), mas os **serviços de produção** ainda não estão implementados:
+hoje ele reaproveita as derivadas de `dev`. Antes de fechar a etapa:
 
 1. Qual servidor IA usar inicialmente? (vLLM, MLX, llama.cpp, Exo ou outro —
    KISS). Decisão de arquitetura.

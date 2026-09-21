@@ -12,8 +12,12 @@ fica no git. O comportamento do instalador é descrito no README.
   `choco` — o `winget` cobre os pacotes necessários.
 - Privilégios elevados (sudo/admin), keepalive de sudo e atualização do
   ambiente (`apt upgrade` / `winget upgrade --all`).
-- Seleção de componentes no modo `dev`. O modo `prod` (servidor-prod/IA)
-  está pausado, sem módulos definidos (`PROD_MODULES` vazio).
+- Seleção de **modo** (`dev` ou `prod`) e dos componentes do modo, com
+  confirmação do resumo. Catálogos: `DEV_MODULES`/`DEV_REPOSITORIES` e
+  `PROD_MODULES`/`PROD_REPOSITORIES`. No `prod` o componente é `servidor-prod`
+  (repo `servidores`); `ia` (Ollama/Open WebUI) segue fora da seleção. Os
+  serviços de produção ainda são pendentes — hoje o `prod` reaproveita as
+  derivadas de `dev` e o resumo avisa isso (ver `URGENT_REVIEW.md`).
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases
