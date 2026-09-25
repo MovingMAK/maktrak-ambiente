@@ -6,18 +6,25 @@ fica no git. O comportamento do instalador é descrito no README.
 
 ## Estado atual
 
-- Único arquivo baixado: `maktrak_setup.py` (orquestrador + classe base
-  `SetupBase` + catálogo `_PKG`), sem dependências externas.
+- Arquivo baixado pelo bootstrap: `maktrak_setup.py` (orquestrador + classe base
+  `SetupBase` + catálogo `_PKG`), sem dependências externas. No modo `prod` o
+  próprio orquestrador baixa um segundo arquivo, o `server_setup.py`
+  (autossuficiente: não importa `maktrak_setup` e não depende de clone).
 - Instalação por SO: `apt`/`snap` no Linux e `winget` no Windows. Não há
   `choco` — o `winget` cobre os pacotes necessários.
 - Privilégios elevados (sudo/admin), keepalive de sudo e atualização do
   ambiente (`apt upgrade` / `winget upgrade --all`).
-- Seleção de **modo** (`dev` ou `prod`) e dos componentes do modo, com
-  confirmação do resumo. Catálogos: `DEV_MODULES`/`DEV_REPOSITORIES` e
-  `PROD_MODULES`/`PROD_REPOSITORIES`. No `prod` o componente é `servidor-prod`
-  (repo `servidores`); `ia` (Ollama/Open WebUI) segue fora da seleção. Os
-  serviços de produção ainda são pendentes — hoje o `prod` reaproveita as
-  derivadas de `dev` e o resumo avisa isso (ver `URGENT_REVIEW.md`).
+- Seleção de **modo** (`dev` ou `prod`) e dos componentes do modo. Catálogos:
+  `DEV_MODULES`/`DEV_REPOSITORIES` e `PROD_MODULES`/`PROD_REPOSITORIES`. No
+  `prod` o componente é `servidor-prod` e o catálogo de repositórios é vazio
+  (produção não clona); `ia` (Ollama/Open WebUI) segue fora da seleção.
+- Modo `prod` **delegado**: sem ferramentas de dev, sem clone e sem build. O
+  orquestrador baixa o `server_setup.py` (repo público, mesma branch escolhida,
+  com fallback para `main`) e o executa como processo separado. O
+  `server_setup.py` instala o runtime Python (venv), baixa o recebedor de deploy
+  (`deploy.py`, `errors.py`, `deploy_receiver.py`) e cria a unit systemd
+  `maktrak-receiver.service`; o código da API chega pelo `POST /maktrak/deploy`.
+  Hoje só Linux com systemd.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases
@@ -44,8 +51,10 @@ Pendências herdadas da divisão base/derivada e do estado atual:
 - [ ] Ampliar os testes automatizados além de credenciais git: seleção de
       componentes, carga de derivadas, propagação de falhas até o relatório
       e instalação Android.
-- [ ] Decidir as questões em aberto de produção/IA (ver
-      `IMPLEMENTATION_QUESTIONS.md`) antes de retomar o modo `prod`.
+- [ ] Fechar os serviços de produção que faltam (unit/nginx para a API em si, na
+      porta 8000, e health checks contínuos) e as questões de IA — ver
+      `IMPLEMENTATION_QUESTIONS.md`.
+- [ ] Suportar o modo `prod` fora do Linux (hoje exige systemd).
 - [ ] Definir uma URL oficial imutável (release/tag) para instalações de
       produção.
 

@@ -19,6 +19,7 @@ import urllib.request
 import ctypes
 import threading
 import signal
+import tempfile
 from pathlib import Path
 from abc import ABC, abstractmethod
 from urllib.parse import quote, unquote
@@ -29,8 +30,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.8"
-SETUP_DATE = "2026-09-24"
+SETUP_VERSION = "1.3.9"
+SETUP_DATE = "2026-09-25"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -86,6 +87,11 @@ def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 SUDO_KEEPALIVE_INTERVAL = 120  # segundos entre renovacoes do ticket sudo
 
+# Repo publico deste proprio instalador (mesma origem do maktrak_setup.py). O
+# modo prod baixa daqui o `server_setup.py` — ver _delegate_prod_setup().
+SETUP_RAW_BASE = "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente"
+PROD_SETUP_FILE = "server_setup.py"
+
 REPOSITORIES = {
     "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
     "servidores":  "https://github.com/MovingMAK/maktrak-server.git",
@@ -109,18 +115,23 @@ DEV_REPOSITORIES = {
     "servidor":   ["servidores"],
 }
 
-# Producao: componentes do servidor em operacao (sem ferramentas de dev). A
-# lista de modulos e informativa (o que o orquestrador instalaria); os pacotes
-# de runtime da API vem do setup do proprio repo `servidores`.
+# Producao: servidor em operacao, SEM ferramentas de dev. Nao ha clone de
+# repositorio nem build: o modo prod sai do orquestrador e delega para o
+# `server_setup.py` (baixado do repo publico), que instala o runtime Python e
+# sobe o recebedor de deploy como servico. O codigo da API chega depois, pelo
+# `POST /maktrak/deploy`.
+# Os catalogos abaixo sao apenas informativos: quem seleciona e PROD_MODULES,
+# e quem instala de fato e o server_setup.py.
 # "ia" (Ollama/Open WebUI) ainda NAO entra na selecao: depende das decisoes de
 # IMPLEMENTATION_QUESTIONS.md.
 PROD_MODULES = {
     "servidor-prod": [],
 }
 
+# Vazio de proposito: producao nao clona repositorios (ver server_setup.py).
 PROD_REPOSITORIES = {
-    "servidor-prod": ["servidores"],
-    "ia":            ["servidores"],
+    "servidor-prod": [],
+    "ia":            [],
 }
 
 # ============================================================================
@@ -1286,14 +1297,13 @@ def _ui_select_components(items_dict, label):
 
 
 def _ui_confirm(mode, components, branch="main"):
-    """Exibe resumo e solicita confirmacao do usuario."""
+    """Exibe resumo e solicita confirmacao do usuario.
+
+    Usado apenas pelo modo `dev`: o modo `prod` delega para o server_setup.py,
+    que exibe o proprio resumo e pede a propria confirmacao.
+    """
     print(f"\n--- Resumo da Instalacao ---")
     print(f"Modo: {mode}")
-    if mode == "prod":
-        # Producao ainda reaproveita as derivadas de dev (ver URGENT_REVIEW.md):
-        # os servicos de runtime (API persistente, reverse proxy) sao pendentes.
-        print("  ⚠️ Modo prod: os servicos de producao ainda nao estao "
-              "implementados; a configuracao reaproveita as derivadas de dev.")
     print(f"Branch: {branch}")
     print(f"Componentes: {', '.join(components)}")
     software = _get_software_for_components(components, mode)
@@ -1310,9 +1320,9 @@ def _ui_confirm(mode, components, branch="main"):
     return confirm in {"y", "yes", ""}
 
 
-def _ui_select_branch():
+def _ui_select_branch(pergunta="Branch dos repositorios? (Enter = main): "):
     """Solicita ao usuario uma branch especifica (default: main)."""
-    branch = input("Branch dos repositorios? (Enter = main): ").strip()
+    branch = input(pergunta).strip()
     return branch if branch else "main"
 
 
@@ -1696,6 +1706,54 @@ def _get_software_for_components(components, mode):
 
 
 # ============================================================================
+# PRODUCAO (delegacao para o server_setup.py)
+# ============================================================================
+
+def _download_texto(urls):
+    """Baixa o primeiro URL que responder. Retorna os bytes ou None."""
+    for url in urls:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                return resp.read()
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao baixar {url}: {exc}")
+    return None
+
+
+def _delegate_prod_setup(branch="main"):
+    """Baixa o server_setup.py (repo publico) e delega a instalacao de prod.
+
+    O modo prod nao clona repositorio nem builda: o `server_setup.py` instala
+    o runtime e sobe o recebedor de deploy como servico systemd. Ele roda como
+    processo separado (herda o terminal) para poder fazer as proprias
+    perguntas. Retorna o codigo de saida do filho.
+    """
+    # Mesma branch do repo de servidores; se ela ainda nao existir neste repo,
+    # cai para `main` (o server_setup.py pode nao estar na branch de trabalho).
+    urls = [f"{SETUP_RAW_BASE}/{branch}/{PROD_SETUP_FILE}"]
+    if branch != "main":
+        urls.append(f"{SETUP_RAW_BASE}/main/{PROD_SETUP_FILE}")
+    dados = _download_texto(urls)
+    if dados is None:
+        print(f"❌ Nao foi possivel baixar {PROD_SETUP_FILE}. "
+              "Verifique a conexao e a branch informada.")
+        return 1
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="maktrak-prod-"))
+    destino = tmp_dir / PROD_SETUP_FILE
+    try:
+        destino.write_bytes(dados)
+        print(f"  ✅ {PROD_SETUP_FILE} baixado ({len(dados)} bytes; "
+              f"branch dos servidores: {branch})")
+        print("  Repassando o controle para o setup de producao...")
+        return subprocess.run(
+            [sys.executable, str(destino), "--branch", branch]
+        ).returncode
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ============================================================================
 # ORQUESTRADOR
 # ============================================================================
 
@@ -1726,6 +1784,16 @@ def main():
     rotulo = "Desenvolvimento" if mode == "dev" else "Producao"
     components = _ui_select_components(catalogo, rotulo)
 
+    # Producao e outro fluxo: sem ferramentas de dev, sem clone, sem build.
+    # Sai do orquestrador e delega para o `server_setup.py` (baixado do repo
+    # publico), que instala o runtime e sobe o recebedor de deploy.
+    if mode == "prod":
+        branch = _ui_select_branch(
+            "Branch do repo de servidores (arquivos do recebedor)? "
+            "(Enter = main): ")
+        print("\n--- Modo prod: delegando para o server_setup.py ---")
+        sys.exit(_delegate_prod_setup(branch))
+
     repos = _get_repositories_to_clone(mode, components)
     branch = _ui_select_branch() if repos else "main"
 
@@ -1733,8 +1801,9 @@ def main():
         print("Instalacao cancelada.")
         sys.exit(0)
 
-    # 3. Software base — SEMPRE instalado (git + Chrome), antes do prompt de
-    #    credenciais GitHub (obter o token) e antes do clone.
+    # 3. Software base (git + Chrome) — sempre no modo dev, antes do prompt de
+    #    credenciais GitHub (obter o token) e antes do clone. Producao nao usa
+    #    nada disto: ja saiu acima para o server_setup.py.
     _install_base_software()
 
     # 4. Credenciais GitHub (todos os dados do usuario obtidos primeiro)
