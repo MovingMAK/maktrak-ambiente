@@ -29,8 +29,8 @@ from urllib.parse import quote, unquote
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.7"
-SETUP_DATE = "2026-09-21"
+SETUP_VERSION = "1.3.8"
+SETUP_DATE = "2026-09-24"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -1304,8 +1304,10 @@ def _ui_confirm(mode, components, branch="main"):
     repos = _get_repositories_to_clone(mode, components)
     if repos:
         print(f"Repositorios: {', '.join(repos)}")
-    confirm = input("\nProsseguir? (YES/no): ").strip().lower()
-    return confirm in {"yes", ""}
+    # Aceita "y"/"yes" (e Enter = default SIM). Sem isto, responder "y" caia
+    # no False e o setup cancelava mesmo com o usuario confirmando.
+    confirm = input("\nProsseguir? (Y/n): ").strip().lower()
+    return confirm in {"y", "yes", ""}
 
 
 def _ui_select_branch():
