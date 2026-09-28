@@ -70,7 +70,7 @@ script:
    `deploy_receiver.py`, do repositório `maktrak-server`) para a pasta do
    projeto;
 3. cria e sobe o serviço systemd `maktrak-receiver.service` (porta 8001);
-4. confere `GET /maktrak` e imprime o relatório.
+4. confere `GET /maktrak/movingmak/deploy_health` e imprime o relatório.
 
 O código da API chega depois, pelo `POST /maktrak/deploy` — por isso a pasta do
 projeto (`~/maktrak-server` por default) fica fora do clone de desenvolvimento

@@ -157,6 +157,25 @@ class ServerSetupTests(unittest.TestCase):
         self.assertEqual(server_setup.ALVO_PADRAO,
                          Path.home() / "maktrak-server")
 
+    def test_health_check_usa_a_rota_do_recebedor(self):
+        """A rota vem de `server_api/doc/Proposta_API.md` §2.0.1 (fonte única)."""
+        urls = []
+
+        def fake_urlopen(url, timeout=0):
+            urls.append(url)
+            return _FakeResp(b'{"versao": 0, "status": "ok"}')
+
+        with mock.patch.object(server_setup.urllib.request, "urlopen",
+                               fake_urlopen):
+            ok, detalhe = server_setup.health_check(8001)
+
+        self.assertTrue(ok)
+        self.assertEqual(server_setup.ROTA_STATUS,
+                         "/maktrak/movingmak/deploy_health")
+        self.assertEqual(urls[0],
+                         "http://127.0.0.1:8001" + server_setup.ROTA_STATUS)
+        self.assertIn("versao 0", detalhe)
+
     def test_gravar_se_mudou_e_idempotente(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             destino = Path(tmpdir) / "deploy.py"

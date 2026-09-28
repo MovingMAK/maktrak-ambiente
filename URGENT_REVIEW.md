@@ -47,9 +47,9 @@ configurar o nginx (sem `server` block, sem reverse proxy). Ao contrario de
   nginx). Manter builds no perfil de desenvolvimento ou no CI.
 - Resolvido em parte (2026-09-25): o modo `prod` nao carrega mais a derivada de
   dev — delega para o `server_setup.py`, que entrega unit systemd para o
-  recebedor de deploy e confere `GET /maktrak`. Continua pendente o que ainda
-  nao existe no projeto: unit/nginx para a API em si (porta 8000) e health
-  checks continuos.
+  recebedor de deploy e confere `GET /maktrak/movingmak/deploy_health`. Continua
+  pendente o que ainda nao existe no projeto: unit/nginx para a API em si (porta
+  8000) e health checks continuos.
 
 ### 3. Requisitos declarados nao correspondem ao que e instalado
 
