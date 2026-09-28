@@ -46,7 +46,7 @@ from pathlib import Path
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.3"
+SETUP_VERSION = "1.0.4"
 SETUP_DATE = "2026-09-25"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
@@ -499,7 +499,8 @@ def health_check(porta, tentativas=20):
         except Exception:
             time.sleep(1)
             continue
-        detalhe = f"version {dados.get('version')} - {dados.get('message')}"
+        detalhe = (f"version_deployer {dados.get('version_deployer')} - "
+                   f"{dados.get('message')}")
         if dados.get("status") == STATUS_ONLINE:
             return True, detalhe
         time.sleep(1)

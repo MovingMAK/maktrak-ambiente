@@ -163,7 +163,7 @@ class ServerSetupTests(unittest.TestCase):
 
         def fake_urlopen(url, timeout=0):
             urls.append(url)
-            return _FakeResp(b'{"status": 0, "version": 0, '
+            return _FakeResp(b'{"status": 0, "version_deployer": 0, '
                              b'"message": "online: no ar"}')
 
         with mock.patch.object(server_setup.urllib.request, "urlopen",
@@ -175,13 +175,13 @@ class ServerSetupTests(unittest.TestCase):
                          "/maktrak/movingmak/deploy_health")
         self.assertEqual(urls[0],
                          "http://127.0.0.1:8001" + server_setup.ROTA_STATUS)
-        self.assertIn("version 0", detalhe)
+        self.assertIn("version_deployer 0", detalhe)
         self.assertIn("online", detalhe)
 
     def test_health_check_espera_o_codigo_online(self):
         """`busy`/`restarting` (2/3) nao contam como pronto — ver Proposta_API.md."""
         def fake_urlopen(url, timeout=0):
-            return _FakeResp(b'{"status": 2, "version": 0, '
+            return _FakeResp(b'{"status": 2, "version_deployer": 0, '
                              b'"message": "busy: deploy em processamento"}')
 
         with mock.patch.object(server_setup.urllib.request, "urlopen",
