@@ -46,7 +46,7 @@ from pathlib import Path
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.0"
+SETUP_VERSION = "1.0.1"
 SETUP_DATE = "2026-09-25"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
@@ -170,9 +170,18 @@ def _sudo_ok():
 
 
 def sudo_ensure():
-    """Solicita/renova o ticket sudo. Retorna True se ficou valido."""
+    """Solicita/renova o ticket sudo. Retorna True se ficou valido.
+
+    A senha pedida aqui e a da SUA CONTA Linux neste equipamento (a mesma do
+    login/sudo) — nada a ver com o token do GitHub pedido antes.
+    """
     if _sudo_ok():
         return True
+    print("  O systemd exige privilegios de administrador: digite a SENHA DA "
+          "SUA CONTA Linux")
+    print("  (a mesma do login/sudo neste equipamento) para gravar "
+          f"{UNIT_PATH},")
+    print("  rodar apt-get e controlar o servico com systemctl.")
     _run(["sudo", "-v"])
     if _sudo_ok():
         print("  ✅ Sudo renovado.")
@@ -252,6 +261,7 @@ def resolver_token():
     print("  O recebedor de deploy fica em "
           f"{REPO_SERVIDORES} (privado).")
     print("  Dica: defina GITHUB_TOKEN no ambiente para nao digitar aqui.")
+    print("  (Este pedido e um TOKEN do GitHub, nao a senha do sistema.)")
     try:
         informado = getpass.getpass("  GitHub token (Enter = cancelar): ")
     except Exception:
