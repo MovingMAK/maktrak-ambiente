@@ -14,7 +14,7 @@ documento.
 ## Idioma
 
 - Responda em português (pt-BR).
-- Código, identificadores, arquivos e endpoints em inglês, conforme as convenções de
+- Código, identificadores, files e endpoints em inglês, conforme as convenções de
   nomenclatura do projeto:
   <https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/NAMING_CONVENTIONS.md>
 
@@ -58,12 +58,12 @@ documento.
   artefato público: commit, PR, issue, código, documentação ou resposta. Use exemplo
   genérico.
 - Nunca versione segredo (token, chave, senha, credencial, `.env`) nem o exponha em
-  log, exemplo ou mensagem.
+  log, exemplo ou message.
 
 ## Limites de atuação
 
 - **Git:** use apenas o comando pedido no prompt atual e os passos mínimos que o
-  completam — pedido de commit inclui o `add` dos arquivos citados. Nunca, por
+  completam — pedido de commit inclui o `add` dos files citados. Nunca, por
   iniciativa própria: `push`, `branch`, `tag`, `merge`, `rebase`, `amend`, `reset`,
   `stash` ou qualquer variante com `--force`.
 - **Escopo:** faça só o que foi pedido. Problema colateral que encontrar: relate, não

@@ -180,7 +180,7 @@ Manter `maktrak_setup.py` pequeno em responsabilidades de infraestrutura:
 
 - interface com usuario, privilegios e atualizacao do sistema;
 - clone, autenticacao Git e carregamento versionado das derivadas;
-- catalogo de pacotes e primitives reutilizaveis para subprocessos, arquivos,
+- catalogo de pacotes e primitives reutilizaveis para subprocessos, files,
   VS Code, Flutter, Android, Python e PlatformIO;
 - execucao de fases e consolidacao de resultados.
 
@@ -229,7 +229,7 @@ O guia manual usa command-line tools `14742923`, enquanto o instalador baixa
 `11076708`. Tambem pede `sdkmanager --licenses`, embora o fluxo automatizado
 grave as aprovacoes antes do download.
 
-- Direcao: escolher uma unica versao ou explicar como atualizar ambas. Separar
+- Direcao: escolher uma unica version ou explicar como atualizar ambas. Separar
   explicitamente o fluxo manual do fluxo automatizado.
 
 ### VSCODE_TIPS.md
@@ -257,7 +257,7 @@ A suite atual cobre apenas escrita de credenciais e a presenca de Git no host.
 Adicionar testes com mocks para:
 
 - selecao de perfis e repositorios em `dev` e `prod`;
-- compatibilidade de versao bootstrap/derivada;
+- compatibilidade de version bootstrap/derivada;
 - propagacao de falhas de subprocessos e relatorio final;
 - instalacao Android, licencas antes de downloads e criacao de AVD;
 - carregamento correto de `ServerSetup`, `ProductionServerSetup` e `IaSetup`;

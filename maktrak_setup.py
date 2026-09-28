@@ -26,7 +26,7 @@ from urllib.parse import quote, unquote
 
 
 # ============================================================================
-# IDENTIFICACAO E VERSAO
+# IDENTIFICACAO E version
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
@@ -71,7 +71,7 @@ def _setup_windows_console():
 
 
 def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE):
-    """Imprime nome + versao + data do script, em destaque colorido.
+    """Imprime nome + version + data do script, em destaque colorido.
 
     Usado no inicio do orquestrador (main) e no init() de cada repo_setup.py.
     """
@@ -156,11 +156,11 @@ _PKG = {
 }
 
 # ============================================================================
-# COMANDO DE VERSAO POR APLICATIVO (para assert_executable)
+# COMANDO DE version POR APLICATIVO (para assert_executable)
 # ============================================================================
 # Formato: nome -> (binario, [args]) | None
 #   None       => verificar apenas PRESENCA (apps GUI sem --version confiavel)
-#   (bin, args)=> binario + argumentos que imprimem a versao e saem com rc=0
+#   (bin, args)=> binario + argumentos que imprimem a version e saem com rc=0
 _VERSION_CMD = {
     "freecad": None,                         # GUI; --version trava sem display
     "kicad": ("kicad-cli", ["--version"]),   # CLI rapido, nao abre a GUI
@@ -453,9 +453,9 @@ class SetupBase(ABC):
     def assert_executable(self, name, timeout=20):
         """Verifica se um executavel esta instalado (PRESENCA e obrigatoria).
 
-        Para a maioria, tambem roda um comando de versao (--version por
+        Para a maioria, tambem roda um comando de version (--version por
         padrao, ou o mapeado em _VERSION_CMD). FALHA somente se o binario
-        nao existir. Se a checagem de versao falhar/timeout, registra o
+        nao existir. Se a checagem de version falhar/timeout, registra o
         executavel como OK com aviso (instalado nao e falha).
         No Windows, se nao estiver no PATH, resolve em Program Files.
         """
@@ -481,9 +481,9 @@ class SetupBase(ABC):
                     if version:
                         self.results[f"{name}_version"] = version[0][:60]
             except subprocess.TimeoutExpired:
-                print(f"  ⚠️ {name}: checagem de versao excedeu {timeout}s (ignorado)")
+                print(f"  ⚠️ {name}: checagem de version excedeu {timeout}s (ignorado)")
             except Exception as exc:
-                print(f"  ⚠️ {name}: nao foi possivel obter versao: {exc}")
+                print(f"  ⚠️ {name}: nao foi possivel obter version: {exc}")
         self.results[name] = True
         return True
 
@@ -547,7 +547,7 @@ class SetupBase(ABC):
         return True
 
     def flutter_build(self, path, platform_target):
-        """Compila um projeto Flutter para a plataforma alvo."""
+        """Compila um projeto Flutter para a plataforma target."""
         self._ensure_flutter_path()
         self._run(["flutter", "build", platform_target], cwd=str(path))
 
@@ -627,7 +627,7 @@ class SetupBase(ABC):
         """Instala JDK + KVM + cmdline-tools + SDK + aceita licencas.
 
         As licencas sao aprovadas ANTES de baixar qualquer pacote ou imagem
-        de sistema, sem prompt interativo (arquivos em <SDK>/licenses/).
+        de sistema, sem prompt interativo (files em <SDK>/licenses/).
         Retorna False se o JDK nao puder ser garantido (bloqueia AVDs/APK).
         """
         if not self._android_install_jdk():
@@ -735,7 +735,7 @@ class SetupBase(ABC):
     def _android_accept_licenses(self, sdk_root=None):
         """Aceita licencas do Android SDK sem prompt interativo.
 
-        Escreve diretamente os arquivos de licenca em <SDK>/licenses/,
+        Escreve diretamente os files de licenca em <SDK>/licenses/,
         com os hashes conhecidos da android-sdk-license. Nao depende de
         TTY nem de resposta do usuario.
         """
@@ -753,7 +753,7 @@ class SetupBase(ABC):
             ]) + "\n", encoding="utf-8")
         (licenses_dir / "android-sdk-preview-license").write_text(
             "84831b9409646a918e30573bab4c9c91346d8abd\n", encoding="utf-8")
-        print("  ✅ Licencas Android aceitas (arquivos gravados no SDK)")
+        print("  ✅ Licencas Android aceitas (files gravados no SDK)")
 
     def _android_ensure_sdkmanager(self, sdk_root):
         """Garante que sdkmanager esta instalado e executavel."""
@@ -1789,7 +1789,7 @@ def main():
     # publico), que instala o runtime e sobe o recebedor de deploy.
     if mode == "prod":
         branch = _ui_select_branch(
-            "Branch do repo de servidores (arquivos do recebedor)? "
+            "Branch do repo de servidores (files do recebedor)? "
             "(Enter = main): ")
         print("\n--- Modo prod: delegando para o server_setup.py ---")
         sys.exit(_delegate_prod_setup(branch))

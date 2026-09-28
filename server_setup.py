@@ -42,11 +42,11 @@ import urllib.request
 from pathlib import Path
 
 # ============================================================================
-# IDENTIFICACAO E VERSAO
+# IDENTIFICACAO E version
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.2"
+SETUP_VERSION = "1.0.3"
 SETUP_DATE = "2026-09-25"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
@@ -87,7 +87,7 @@ configurar_saida()
 
 
 def print_banner():
-    """Imprime nome + versao + data deste script, em destaque colorido."""
+    """Imprime nome + version + data deste script, em destaque colorido."""
     cor = ANSI_GREEN if _cores_ativas() else ""
     fim = ANSI_RESET if cor else ""
     print(f"{ANSI_BOLD if cor else ''}{cor}== {SETUP_NAME} "
@@ -106,18 +106,18 @@ def _titulo(texto):
 # Repo (privado) de onde vem o recebedor de deploy. Requer token GitHub.
 REPO_SERVIDORES = "MovingMAK/maktrak-server"
 
-# Arquivos do recebedor minimo, relativos ao repo. O recebedor importa `deploy`,
+# files do recebedor minimo, relativos ao repo. O recebedor importa `deploy`,
 # que por sua vez importa `errors` — os tres andam juntos.
-ARQUIVOS_RECEBEDOR = (
+files_RECEBEDOR = (
     "server_api/exec/errors.py",
     "server_api/exec/deploy.py",
     "server_api/exec/deploy_receiver.py",
 )
 
-# Pasta do projeto servidor no equipamento (alvo que o deploy substitui).
+# Pasta do projeto servidor no equipamento (target que o deploy substitui).
 # Fica FORA de ~/repos/movingmak (clone de dev) de proposito: producao nao
 # compartilha pasta com desenvolvimento.
-ALVO_PADRAO = Path.home() / "maktrak-server"
+target_PADRAO = Path.home() / "maktrak-server"
 
 PORTA_PADRAO = 8001  # a API usa 8000; o recebedor fica em 8001
 VENV_NOME = "maktrak-server"
@@ -129,6 +129,10 @@ UNIT_PATH = Path("/etc/systemd/system") / UNIT_NAME
 # Rota de status do recebedor (health check). Fonte: server_api/doc/Proposta_API.md
 # 2.0.1 — o POST do pacote continua em `/maktrak/deploy`.
 ROTA_STATUS = "/maktrak/movingmak/deploy_health"
+
+# Codigo do campo `status` quando o recebedor esta pronto (Proposta_API.md 2.0.1):
+# 0 online | 1 offline | 2 busy | 3 restarting.
+STATUS_ONLINE = 0
 
 
 # ============================================================================
@@ -340,8 +344,8 @@ def _gravar_se_mudou(destino, dados):
     return True
 
 
-def instalar_recebedor(alvo, ref, token):
-    """Baixa os arquivos do recebedor para `<alvo>/server_api/exec/`.
+def instalar_recebedor(target, ref, token):
+    """Baixa os files do recebedor para `<target>/server_api/exec/`.
 
     Retorna (ok, houve_mudanca).
     """
@@ -353,9 +357,9 @@ def instalar_recebedor(alvo, ref, token):
               "rode de novo.")
         return False, False
 
-    destino_dir = alvo / "server_api" / "exec"
+    destino_dir = target / "server_api" / "exec"
     mudou = False
-    for caminho in ARQUIVOS_RECEBEDOR:
+    for caminho in files_RECEBEDOR:
         dados = baixar_arquivo(REPO_SERVIDORES, caminho, ref, token)
         if dados is None:
             return False, mudou
@@ -363,7 +367,7 @@ def instalar_recebedor(alvo, ref, token):
 
     # `server_api/database` e poupado no deploy; criar desde ja evita que o
     # primeiro pacote aplique sobre uma pasta inexistente.
-    (alvo / "server_api" / "database").mkdir(parents=True, exist_ok=True)
+    (target / "server_api" / "database").mkdir(parents=True, exist_ok=True)
     print(f"  ✅ Recebedor em {destino_dir}")
     return True, mudou
 
@@ -413,7 +417,7 @@ def preparar_runtime():
 # SERVICO SYSTEMD
 # ============================================================================
 
-def unit_text(usuario, alvo, porta, externo, python):
+def unit_text(usuario, target, porta, externo, python):
     """Conteudo da unit systemd do recebedor (funcao pura = testavel)."""
     args = f"--port {porta}" + (" --extern" if externo else "")
     return f"""\
@@ -426,9 +430,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User={usuario}
-WorkingDirectory={alvo / 'server_api'}
+WorkingDirectory={target / 'server_api'}
 Environment=PYTHONUNBUFFERED=1
-ExecStart={python} {alvo / 'server_api' / 'exec' / 'deploy_receiver.py'} {args}
+ExecStart={python} {target / 'server_api' / 'exec' / 'deploy_receiver.py'} {args}
 # O recebedor encerra depois de aplicar um pacote; o Restart sobe o codigo novo.
 Restart=always
 RestartSec=3
@@ -444,11 +448,11 @@ def _unit_ativa():
     return (result.stdout or "").strip() == "active"
 
 
-def instalar_servico(alvo, porta, externo, python):
+def instalar_servico(target, porta, externo, python):
     """Escreve a unit e (re)inicia o servico. Retorna (ok, unit_mudou)."""
     _titulo("Servico systemd")
     usuario = getpass.getuser()
-    conteudo = unit_text(usuario, alvo, porta, externo, python)
+    conteudo = unit_text(usuario, target, porta, externo, python)
     try:
         atual = UNIT_PATH.read_text(encoding="utf-8")
     except Exception:
@@ -471,7 +475,7 @@ def instalar_servico(alvo, porta, externo, python):
 
 
 def reiniciar_servico():
-    """Reinicia o servico para carregar unit/arquivos novos."""
+    """Reinicia o servico para carregar unit/files novos."""
     return _run(["sudo", "systemctl", "restart", UNIT_NAME]).returncode == 0
 
 
@@ -480,16 +484,26 @@ def reiniciar_servico():
 # ============================================================================
 
 def health_check(porta, tentativas=20):
-    """Consulta `ROTA_STATUS` ate responder. Retorna (ok, detalhe)."""
+    """Consulta o status do recebedor ate ele responder ONLINE.
+
+    Sucesso = HTTP 200 com `status` == `STATUS_ONLINE` (0). `busy` e
+    `restarting` sao estados transitorios do deploy: continua tentando ate o
+    timeout. Retorna (ok, detalhe).
+    """
     url = f"http://127.0.0.1:{porta}{ROTA_STATUS}"
+    detalhe = f"sem resposta em {url}"
     for _ in range(tentativas):
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
                 dados = json.loads(resp.read().decode("utf-8", "replace"))
-            return True, f"versao {dados.get('versao')} - {dados.get('status')}"
         except Exception:
             time.sleep(1)
-    return False, f"sem resposta em {url}"
+            continue
+        detalhe = f"version {dados.get('version')} - {dados.get('message')}"
+        if dados.get("status") == STATUS_ONLINE:
+            return True, detalhe
+        time.sleep(1)
+    return False, detalhe
 
 
 # ============================================================================
@@ -535,7 +549,7 @@ def _perguntar_sim(texto, default=True):
 # ============================================================================
 
 def checar_requisitos():
-    """Confere SO e systemd. Retorna (ok, mensagem)."""
+    """Confere SO e systemd. Retorna (ok, message)."""
     if OS_TYPE != "linux":
         return False, (f"o modo prod por enquanto suporta apenas Linux "
                        f"(detectado: {OS_TYPE}).")
@@ -555,8 +569,8 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="MakTrak Setup - Servidor de Producao (modo `prod`)")
-    parser.add_argument("--alvo", default=None,
-                        help=f"pasta do projeto servidor (default: {ALVO_PADRAO})")
+    parser.add_argument("--target", default=None,
+                        help=f"pasta do projeto servidor (default: {target_PADRAO})")
     parser.add_argument("--porta", type=int, default=None,
                         help=f"porta do recebedor (default: {PORTA_PADRAO})")
     parser.add_argument("--branch", default="main",
@@ -574,9 +588,9 @@ def main():
         return 2
 
     # ── Coleta (todas as respostas antes de executar) ────────────────────
-    alvo_bruto = args.alvo or _perguntar(
-        f"Pasta do projeto servidor (Enter = {ALVO_PADRAO}): ", str(ALVO_PADRAO))
-    alvo = Path(alvo_bruto).expanduser().resolve()
+    target_bruto = args.target or _perguntar(
+        f"Pasta do projeto servidor (Enter = {target_PADRAO}): ", str(target_PADRAO))
+    target = Path(target_bruto).expanduser().resolve()
     porta = args.porta if args.porta else _perguntar_porta(PORTA_PADRAO)
     if not 0 < porta < 65536:
         print(f"❌ Porta invalida: {porta} (use 1-65535)")
@@ -594,7 +608,7 @@ def main():
     print("Modo: prod")
     print("Servidor: runtime Python + recebedor de deploy (systemd)")
     print(f"Branch do repo de servidores: {args.branch}")
-    print(f"Pasta do projeto (alvo do deploy): {alvo}")
+    print(f"Pasta do projeto (target do deploy): {target}")
     print(f"Porta do recebedor: {porta} "
           f"({'0.0.0.0 (rede)' if externo else '127.0.0.1 (local)'})")
     print(f"Ambiente virtual: {venv_dir()}")
@@ -634,14 +648,14 @@ def main():
         _relatorio(resultados)
         return 1
 
-    alvo.mkdir(parents=True, exist_ok=True)
-    ok_recebedor, recebedor_mudou = instalar_recebedor(alvo, args.branch, token)
+    target.mkdir(parents=True, exist_ok=True)
+    ok_recebedor, recebedor_mudou = instalar_recebedor(target, args.branch, token)
     resultados["recebedor-codigo"] = ok_recebedor
     if not ok_recebedor:
         _relatorio(resultados)
         return 1
 
-    ok_unit, unit_mudou = instalar_servico(alvo, porta, externo, python)
+    ok_unit, unit_mudou = instalar_servico(target, porta, externo, python)
     resultados["systemd-unit"] = ok_unit
     if not ok_unit:
         _relatorio(resultados)
@@ -665,7 +679,7 @@ def main():
         print("\n" + "=" * 60)
         print("✅ Servidor de producao pronto para receber deploy!")
         print("=" * 60)
-        _proximos_passos(alvo, porta)
+        _proximos_passos(target, porta)
         return 0
     print("\n⚠️ O recebedor nao respondeu. Veja os logs:")
     print(f"     journalctl -u {UNIT_NAME} -n 50 --no-pager")
@@ -680,12 +694,12 @@ def _relatorio(resultados):
               f"{'OK' if status else 'FALHA'}")
 
 
-def _proximos_passos(alvo, porta):
+def _proximos_passos(target, porta):
     """Imprime como enviar um deploy e como acompanhar o servico."""
     print("\nProximos passos:")
     print(f"  - logs do recebedor : journalctl -u {UNIT_NAME} -f")
     print(f"  - status do servico : systemctl status {UNIT_NAME}")
-    print(f"  - pasta do projeto  : {alvo} (alvo do deploy; "
+    print(f"  - pasta do projeto  : {target} (target do deploy; "
           f"server_api/database e preservado)")
     print("  - enviar um deploy  : no equipamento de origem, dentro do repo "
           "maktrak-server:")

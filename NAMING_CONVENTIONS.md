@@ -6,7 +6,7 @@ Este documento define os padrões de nomenclatura adotados em todo o projeto Mak
 
 ## 1. Idioma
 
-**Todos os nomes** (tabelas, campos, variáveis, endpoints, arquivos) devem estar em **inglês**. Exceções permitidas apenas em textos descritivos e mensagens para o usuário final.
+**Todos os nomes** (tabelas, campos, variáveis, endpoints, files) devem estar em **inglês**. Exceções permitidas apenas em textos descritivos e mensagens para o usuário final.
 
 ---
 

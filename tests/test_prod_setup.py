@@ -125,25 +125,25 @@ class ServerSetupTests(unittest.TestCase):
 
     def test_recebedor_completo(self):
         """`deploy_receiver` -> `deploy` -> `errors`: os tres andam juntos."""
-        self.assertEqual(set(server_setup.ARQUIVOS_RECEBEDOR), {
+        self.assertEqual(set(server_setup.files_RECEBEDOR), {
             "server_api/exec/deploy.py",
             "server_api/exec/deploy_receiver.py",
             "server_api/exec/errors.py",
         })
 
-    def test_versao_declarada(self):
+    def test_version_declarada(self):
         self.assertTrue(server_setup.SETUP_VERSION)
         self.assertTrue(server_setup.SETUP_DATE)
 
     def test_unit_exposta_na_rede(self):
-        alvo = Path("/srv/proj")
+        target = Path("/srv/proj")
         texto = server_setup.unit_text(
-            "maktrak", alvo, 8001, True, "/opt/venv/bin/python")
+            "maktrak", target, 8001, True, "/opt/venv/bin/python")
         self.assertIn("User=maktrak", texto)
         self.assertIn("Restart=always", texto)
-        self.assertIn(f"WorkingDirectory={alvo / 'server_api'}", texto)
+        self.assertIn(f"WorkingDirectory={target / 'server_api'}", texto)
         self.assertIn(f"ExecStart=/opt/venv/bin/python "
-                      f"{alvo / 'server_api' / 'exec' / 'deploy_receiver.py'} "
+                      f"{target / 'server_api' / 'exec' / 'deploy_receiver.py'} "
                       f"--port 8001 --extern", texto)
         self.assertIn("[Install]", texto)
 
@@ -152,9 +152,9 @@ class ServerSetupTests(unittest.TestCase):
         self.assertIn("--port 9001", texto)
         self.assertNotIn("--extern", texto)
 
-    def test_alvo_e_porta_default(self):
+    def test_target_e_porta_default(self):
         self.assertEqual(server_setup.PORTA_PADRAO, 8001)
-        self.assertEqual(server_setup.ALVO_PADRAO,
+        self.assertEqual(server_setup.target_PADRAO,
                          Path.home() / "maktrak-server")
 
     def test_health_check_usa_a_rota_do_recebedor(self):
@@ -163,7 +163,8 @@ class ServerSetupTests(unittest.TestCase):
 
         def fake_urlopen(url, timeout=0):
             urls.append(url)
-            return _FakeResp(b'{"versao": 0, "status": "ok"}')
+            return _FakeResp(b'{"status": 0, "version": 0, '
+                             b'"message": "online: no ar"}')
 
         with mock.patch.object(server_setup.urllib.request, "urlopen",
                                fake_urlopen):
@@ -174,7 +175,23 @@ class ServerSetupTests(unittest.TestCase):
                          "/maktrak/movingmak/deploy_health")
         self.assertEqual(urls[0],
                          "http://127.0.0.1:8001" + server_setup.ROTA_STATUS)
-        self.assertIn("versao 0", detalhe)
+        self.assertIn("version 0", detalhe)
+        self.assertIn("online", detalhe)
+
+    def test_health_check_espera_o_codigo_online(self):
+        """`busy`/`restarting` (2/3) nao contam como pronto — ver Proposta_API.md."""
+        def fake_urlopen(url, timeout=0):
+            return _FakeResp(b'{"status": 2, "version": 0, '
+                             b'"message": "busy: deploy em processamento"}')
+
+        with mock.patch.object(server_setup.urllib.request, "urlopen",
+                               fake_urlopen), \
+                mock.patch.object(server_setup.time, "sleep"):
+            ok, detalhe = server_setup.health_check(8001, tentativas=2)
+
+        self.assertFalse(ok)
+        self.assertIn("busy", detalhe)
+        self.assertEqual(server_setup.STATUS_ONLINE, 0)
 
     def test_gravar_se_mudou_e_idempotente(self):
         with tempfile.TemporaryDirectory() as tmpdir:

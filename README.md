@@ -118,6 +118,6 @@ dependência de caminho.
   `MovingMAK/maktrak-ambiente` (branch `main`).
 - Durante a execução, o script pode pedir usuário/token do GitHub para
   acessar repositórios privados da organização.
-- No modo `prod` são baixados dois arquivos do repositório público
-  (`maktrak_setup.py` e `server_setup.py`); os arquivos do recebedor vêm do
+- No modo `prod` são baixados dois files do repositório público
+  (`maktrak_setup.py` e `server_setup.py`); os files do recebedor vêm do
   `maktrak-server` (privado) via API de conteúdo do GitHub, usando o token.
