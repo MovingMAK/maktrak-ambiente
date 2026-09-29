@@ -46,8 +46,8 @@ from pathlib import Path
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.4"
-SETUP_DATE = "2026-09-25"
+SETUP_VERSION = "1.0.5"
+SETUP_DATE = "2026-09-29"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -133,6 +133,11 @@ ROTA_STATUS = "/maktrak/movingmak/deploy_health"
 # Codigo do campo `status` quando o recebedor esta pronto (Proposta_API.md 2.0.1):
 # 0 online | 1 offline | 2 busy | 3 restarting.
 STATUS_ONLINE = 0
+
+# Limite do pacote de deploy do SERVICO de producao (`--max-kb` do recebedor).
+# O default do recebedor e 100 KB (pensado para pacote de TESTE); o pacote real
+# do projeto tem ~269 KB, entao o servico de producao sobe com folga (300 KB).
+PACOTE_KB_PADRAO = 300
 
 
 # ============================================================================
@@ -417,9 +422,11 @@ def preparar_runtime():
 # SERVICO SYSTEMD
 # ============================================================================
 
-def unit_text(usuario, target, porta, externo, python):
+def unit_text(usuario, target, porta, externo, python,
+              pacote_kb=PACOTE_KB_PADRAO):
     """Conteudo da unit systemd do recebedor (funcao pura = testavel)."""
-    args = f"--port {porta}" + (" --extern" if externo else "")
+    args = (f"--port {porta}" + (" --extern" if externo else "")
+            + f" --max-kb {pacote_kb}")
     return f"""\
 [Unit]
 Description=MakTrak - recebedor de deploy (uvicorn)
@@ -448,11 +455,12 @@ def _unit_ativa():
     return (result.stdout or "").strip() == "active"
 
 
-def instalar_servico(target, porta, externo, python):
+def instalar_servico(target, porta, externo, python,
+                     pacote_kb=PACOTE_KB_PADRAO):
     """Escreve a unit e (re)inicia o servico. Retorna (ok, unit_mudou)."""
     _titulo("Servico systemd")
     usuario = getpass.getuser()
-    conteudo = unit_text(usuario, target, porta, externo, python)
+    conteudo = unit_text(usuario, target, porta, externo, python, pacote_kb)
     try:
         atual = UNIT_PATH.read_text(encoding="utf-8")
     except Exception:
@@ -545,6 +553,21 @@ def _perguntar_sim(texto, default=True):
     return resposta in {"s", "sim", "y", "yes"}
 
 
+def _perguntar_kb(default):
+    """Le o limite do pacote em KB (>= 1), com default."""
+    while True:
+        bruto = _perguntar(f"Limite do pacote em KB (Enter = {default}): ",
+                           str(default))
+        try:
+            kb = int(bruto)
+        except ValueError:
+            print(f"  ⚠️ Valor invalido: {bruto!r}")
+            continue
+        if kb >= 1:
+            return kb
+        print(f"  ⚠️ Fora da faixa: {kb} (use >= 1)")
+
+
 # ============================================================================
 # PLANO / EXECUCAO
 # ============================================================================
@@ -578,6 +601,10 @@ def main():
                         help="branch/tag do repo de servidores (default: main)")
     parser.add_argument("--local", action="store_true",
                         help="escuta apenas em 127.0.0.1 (default: exposto na rede)")
+    parser.add_argument("--max-kb", type=int, default=None,
+                        help="limite do pacote de deploy em KB "
+                             f"(default: {PACOTE_KB_PADRAO}; o pacote real do "
+                             "projeto tem ~269 KB)")
     parser.add_argument("--dry-run", action="store_true",
                         help="mostra o plano e sai, sem alterar nada")
     args = parser.parse_args()
@@ -599,6 +626,10 @@ def main():
     externo = not args.local
     if not args.local and sys.stdin.isatty():
         externo = _perguntar_sim("Expor o recebedor na rede (0.0.0.0)?", True)
+    pacote_kb = args.max_kb if args.max_kb else _perguntar_kb(PACOTE_KB_PADRAO)
+    if pacote_kb < 1:
+        print(f"❌ Limite do pacote invalido: {pacote_kb} KB (use >= 1)")
+        return 1
 
     # Token ANTES do resumo: o recebedor vive num repo privado e sem token nao
     # ha o que instalar. Assim todas as respostas sao coletadas antes da
@@ -612,6 +643,7 @@ def main():
     print(f"Pasta do projeto (target do deploy): {target}")
     print(f"Porta do recebedor: {porta} "
           f"({'0.0.0.0 (rede)' if externo else '127.0.0.1 (local)'})")
+    print(f"Limite do pacote (--max-kb): {pacote_kb} KB")
     print(f"Ambiente virtual: {venv_dir()}")
     print(f"Servico: {UNIT_NAME}")
     print(f"Token GitHub: {'ok' if token else 'ausente'}")
@@ -656,7 +688,8 @@ def main():
         _relatorio(resultados)
         return 1
 
-    ok_unit, unit_mudou = instalar_servico(target, porta, externo, python)
+    ok_unit, unit_mudou = instalar_servico(target, porta, externo, python,
+                                           pacote_kb)
     resultados["systemd-unit"] = ok_unit
     if not ok_unit:
         _relatorio(resultados)
@@ -680,7 +713,7 @@ def main():
         print("\n" + "=" * 60)
         print("✅ Servidor de producao pronto para receber deploy!")
         print("=" * 60)
-        _proximos_passos(target, porta)
+        _proximos_passos(target, porta, pacote_kb)
         return 0
     print("\n⚠️ O recebedor nao respondeu. Veja os logs:")
     print(f"     journalctl -u {UNIT_NAME} -n 50 --no-pager")
@@ -695,13 +728,17 @@ def _relatorio(resultados):
               f"{'OK' if status else 'FALHA'}")
 
 
-def _proximos_passos(target, porta):
+def _proximos_passos(target, porta, pacote_kb=PACOTE_KB_PADRAO):
     """Imprime como enviar um deploy e como acompanhar o servico."""
     print("\nProximos passos:")
     print(f"  - logs do recebedor : journalctl -u {UNIT_NAME} -f")
     print(f"  - status do servico : systemctl status {UNIT_NAME}")
     print(f"  - pasta do projeto  : {target} (target do deploy; "
           f"server_api/database e preservado)")
+    print(f"  - limite do pacote  : {pacote_kb} KB (flag --max-kb na unit "
+          f"{UNIT_PATH})")
+    print(f"      para mudar: 'systemctl daemon-reload' + "
+          f"'systemctl restart {UNIT_NAME}'")
     print("  - enviar um deploy  : no equipamento de origem, dentro do repo "
           "maktrak-server:")
     print(f"      python server_api/utils/deploy/deploy.py --servidor "

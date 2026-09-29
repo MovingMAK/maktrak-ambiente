@@ -23,8 +23,9 @@ fica no git. O comportamento do instalador é descrito no README.
   com fallback para `main`) e o executa como processo separado. O
   `server_setup.py` instala o runtime Python (venv), baixa o recebedor de deploy
   (`deploy.py`, `errors.py`, `deploy_receiver.py`) e cria a unit systemd
-  `maktrak-receiver.service`; o código da API chega pelo `POST /maktrak/deploy`.
-  Hoje só Linux com systemd.
+  `maktrak-receiver.service`, que sobe com `--max-kb` (limite do pacote de
+  deploy; default 300 KB — o recebedor sozinho usa 100 KB, só para teste); o
+  código da API chega pelo `POST /maktrak/deploy`. Hoje só Linux com systemd.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases

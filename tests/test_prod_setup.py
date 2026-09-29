@@ -138,19 +138,27 @@ class ServerSetupTests(unittest.TestCase):
     def test_unit_exposta_na_rede(self):
         target = Path("/srv/proj")
         texto = server_setup.unit_text(
-            "maktrak", target, 8001, True, "/opt/venv/bin/python")
+            "maktrak", target, 8001, True, "/opt/venv/bin/python", 300)
         self.assertIn("User=maktrak", texto)
         self.assertIn("Restart=always", texto)
         self.assertIn(f"WorkingDirectory={target / 'server_api'}", texto)
         self.assertIn(f"ExecStart=/opt/venv/bin/python "
                       f"{target / 'server_api' / 'exec' / 'deploy_receiver.py'} "
-                      f"--port 8001 --extern", texto)
+                      f"--port 8001 --extern --max-kb 300", texto)
         self.assertIn("[Install]", texto)
 
     def test_unit_apenas_local(self):
-        texto = server_setup.unit_text("u", Path("/p"), 9001, False, "/py")
+        texto = server_setup.unit_text("u", Path("/p"), 9001, False, "/py", 512)
         self.assertIn("--port 9001", texto)
         self.assertNotIn("--extern", texto)
+        self.assertIn("--max-kb 512", texto)
+
+    def test_unit_limite_do_pacote(self):
+        """O servico de producao sobe com `--max-kb` — o default do recebedor
+        (100 KB) e so para pacote de teste; o pacote real tem ~269 KB."""
+        self.assertEqual(server_setup.PACOTE_KB_PADRAO, 300)
+        texto = server_setup.unit_text("u", Path("/p"), 8001, True, "/py")
+        self.assertIn("--max-kb 300", texto)
 
     def test_target_e_porta_default(self):
         self.assertEqual(server_setup.PORTA_PADRAO, 8001)
