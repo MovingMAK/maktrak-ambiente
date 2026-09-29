@@ -154,11 +154,11 @@ class ServerSetupTests(unittest.TestCase):
         self.assertIn("--max-kb 512", texto)
 
     def test_unit_limite_do_pacote(self):
-        """O servico de producao sobe com `--max-kb` — o default do recebedor
-        (100 KB) e so para pacote de teste; o pacote real tem ~269 KB."""
-        self.assertEqual(server_setup.PACOTE_KB_PADRAO, 300)
+        """O servico de producao sobe com `--max-kb` explicito (o pacote e so o
+        conteudo da pasta exec/, ~20 KB — 100 KB sobra)."""
+        self.assertEqual(server_setup.PACOTE_KB_PADRAO, 100)
         texto = server_setup.unit_text("u", Path("/p"), 8001, True, "/py")
-        self.assertIn("--max-kb 300", texto)
+        self.assertIn("--max-kb 100", texto)
 
     def test_target_e_porta_default(self):
         self.assertEqual(server_setup.PORTA_PADRAO, 8001)

@@ -70,13 +70,14 @@ script:
    `deploy_receiver.py`, do repositório `maktrak-server`) para a pasta do
    projeto;
 3. cria e sobe o serviço systemd `maktrak-receiver.service` (porta 8001) — a unit
-   sobe com `--max-kb` (default **300 KB**): o default do recebedor é 100 KB,
-   pensado para pacote de teste, e o pacote real do projeto tem ~269 KB;
+   sobe com `--max-kb` (default **100 KB**, o mesmo do recebedor): o pacote (só o
+   conteúdo da pasta `exec/`) tem ~20 KB;
 4. confere `GET /maktrak/movingmak/deploy_health` e imprime o relatório.
 
 O código da API chega depois, pelo `POST /maktrak/deploy` — por isso a pasta do
 projeto (`~/maktrak-server` por default) fica fora do clone de desenvolvimento
-(`~/repos/movingmak/maktrak/`) e `server_api/database` é preservada.
+(`~/repos/movingmak/maktrak/`). O deploy substitui apenas a pasta
+`server_api/exec/`; os bancos em `server_api/database/` ficam intactos.
 
 Requisitos do modo `prod`: Linux com systemd e um token GitHub com leitura no
 repositório `maktrak-server` (privado). O token pode vir de `GITHUB_TOKEN` ou do

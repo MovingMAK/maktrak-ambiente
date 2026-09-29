@@ -114,9 +114,10 @@ files_RECEBEDOR = (
     "server_api/exec/deploy_receiver.py",
 )
 
-# Pasta do projeto servidor no equipamento (target que o deploy substitui).
-# Fica FORA de ~/repos/movingmak (clone de dev) de proposito: producao nao
-# compartilha pasta com desenvolvimento.
+# Pasta do projeto servidor no equipamento. O recebedor fica em
+# `<target>/server_api/exec/` — a pasta que o deploy substitui — e os bancos em
+# `<target>/server_api/database/`, fora dela. Fica FORA de ~/repos/movingmak
+# (clone de dev) de proposito: producao nao compartilha pasta com desenvolvimento.
 target_PADRAO = Path.home() / "maktrak-server"
 
 PORTA_PADRAO = 8001  # a API usa 8000; o recebedor fica em 8001
@@ -135,9 +136,9 @@ ROTA_STATUS = "/maktrak/movingmak/deploy_health"
 STATUS_ONLINE = 0
 
 # Limite do pacote de deploy do SERVICO de producao (`--max-kb` do recebedor).
-# O default do recebedor e 100 KB (pensado para pacote de TESTE); o pacote real
-# do projeto tem ~269 KB, entao o servico de producao sobe com folga (300 KB).
-PACOTE_KB_PADRAO = 300
+# O pacote e so o conteudo da pasta exec/ (~20 KB), entao o default de 100 KB
+# (o mesmo do recebedor) sobra; a unit sobe com esse valor explicito.
+PACOTE_KB_PADRAO = 100
 
 
 # ============================================================================
@@ -370,8 +371,9 @@ def instalar_recebedor(target, ref, token):
             return False, mudou
         mudou = _gravar_se_mudou(destino_dir / Path(caminho).name, dados) or mudou
 
-    # `server_api/database` e poupado no deploy; criar desde ja evita que o
-    # primeiro pacote aplique sobre uma pasta inexistente.
+    # `server_api/database` e onde a API cria os bancos — o deploy nao toca nela
+    # (a pasta substituida e `server_api/exec/`); criar desde ja deixa a arvore
+    # do projeto pronta.
     (target / "server_api" / "database").mkdir(parents=True, exist_ok=True)
     print(f"  ✅ Recebedor em {destino_dir}")
     return True, mudou
@@ -603,8 +605,8 @@ def main():
                         help="escuta apenas em 127.0.0.1 (default: exposto na rede)")
     parser.add_argument("--max-kb", type=int, default=None,
                         help="limite do pacote de deploy em KB "
-                             f"(default: {PACOTE_KB_PADRAO}; o pacote real do "
-                             "projeto tem ~269 KB)")
+                             f"(default: {PACOTE_KB_PADRAO}; o pacote tem "
+                             "~20 KB)")
     parser.add_argument("--dry-run", action="store_true",
                         help="mostra o plano e sai, sem alterar nada")
     args = parser.parse_args()
@@ -733,8 +735,8 @@ def _proximos_passos(target, porta, pacote_kb=PACOTE_KB_PADRAO):
     print("\nProximos passos:")
     print(f"  - logs do recebedor : journalctl -u {UNIT_NAME} -f")
     print(f"  - status do servico : systemctl status {UNIT_NAME}")
-    print(f"  - pasta do projeto  : {target} (target do deploy; "
-          f"server_api/database e preservado)")
+    print(f"  - pasta do projeto  : {target} (o deploy substitui apenas "
+          f"{target / 'server_api' / 'exec'})")
     print(f"  - limite do pacote  : {pacote_kb} KB (flag --max-kb na unit "
           f"{UNIT_PATH})")
     print(f"      para mudar: 'systemctl daemon-reload' + "
