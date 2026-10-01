@@ -46,8 +46,8 @@ from pathlib import Path
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.5"
-SETUP_DATE = "2026-09-29"
+SETUP_VERSION = "1.0.6"
+SETUP_DATE = "2026-10-01"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -127,9 +127,9 @@ RUNTIME_PKGS = ("fastapi", "uvicorn", "pydantic", "starlette")
 UNIT_NAME = "maktrak-receiver.service"
 UNIT_PATH = Path("/etc/systemd/system") / UNIT_NAME
 
-# Rota de status do recebedor (health check). Fonte: server_api/doc/Proposta_API.md
+# Endpoint de status do recebedor (health check). Fonte: server_api/doc/Proposta_API.md
 # 2.0.1 — o POST do pacote continua em `/maktrak/deploy`.
-ROTA_STATUS = "/maktrak/movingmak/deploy_health"
+ENDPOINT_STATUS = "/maktrak/movingmak/deploy_health"
 
 # Codigo do campo `status` quando o recebedor esta pronto (Proposta_API.md 2.0.1):
 # 0 online | 1 offline | 2 busy | 3 restarting.
@@ -500,7 +500,7 @@ def health_check(porta, tentativas=20):
     `restarting` sao estados transitorios do deploy: continua tentando ate o
     timeout. Retorna (ok, detalhe).
     """
-    url = f"http://127.0.0.1:{porta}{ROTA_STATUS}"
+    url = f"http://127.0.0.1:{porta}{ENDPOINT_STATUS}"
     detalhe = f"sem resposta em {url}"
     for _ in range(tentativas):
         try:
@@ -707,7 +707,7 @@ def main():
 
     ok_health, detalhe = health_check(porta)
     resultados["health-check"] = ok_health
-    print(f"  {'✅' if ok_health else '❌'} GET {ROTA_STATUS}: {detalhe}")
+    print(f"  {'✅' if ok_health else '❌'} GET {ENDPOINT_STATUS}: {detalhe}")
 
     _relatorio(resultados)
 

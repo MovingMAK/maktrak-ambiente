@@ -165,8 +165,8 @@ class ServerSetupTests(unittest.TestCase):
         self.assertEqual(server_setup.target_PADRAO,
                          Path.home() / "maktrak-server")
 
-    def test_health_check_usa_a_rota_do_recebedor(self):
-        """A rota vem de `server_api/doc/Proposta_API.md` §2.0.1 (fonte única)."""
+    def test_health_check_usa_o_endpoint_do_recebedor(self):
+        """O endpoint vem de `server_api/doc/Proposta_API.md` §2.0.1 (fonte única)."""
         urls = []
 
         def fake_urlopen(url, timeout=0):
@@ -179,10 +179,10 @@ class ServerSetupTests(unittest.TestCase):
             ok, detalhe = server_setup.health_check(8001)
 
         self.assertTrue(ok)
-        self.assertEqual(server_setup.ROTA_STATUS,
+        self.assertEqual(server_setup.ENDPOINT_STATUS,
                          "/maktrak/movingmak/deploy_health")
         self.assertEqual(urls[0],
-                         "http://127.0.0.1:8001" + server_setup.ROTA_STATUS)
+                         "http://127.0.0.1:8001" + server_setup.ENDPOINT_STATUS)
         self.assertIn("version_deployer 0", detalhe)
         self.assertIn("online", detalhe)
 
