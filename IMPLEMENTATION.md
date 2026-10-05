@@ -26,6 +26,12 @@ fica no git. O comportamento do instalador é descrito no README.
   `maktrak-receiver.service`, que sobe com `--max-kb` (limite do pacote de
   deploy; default 100 KB, o mesmo do recebedor — o pacote tem ~20 KB); o
   código da API chega pelo `POST /maktrak/deploy`. Hoje só Linux com systemd.
+- O token GitHub do modo `prod` é validado contra a API antes de baixar o
+  recebedor. Prioridade: `GITHUB_TOKEN` (validado) → prompt → store; em modo
+  interativo o usuário é consultado antes de o script confiar no
+  `~/.git-credentials`, com até 3 tentativas para o token digitado. Credencial
+  inválida/expirada (401) ou sem leitura no `maktrak-server` é descartada com
+  aviso; sem TTY resta o store validado.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases

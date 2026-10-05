@@ -46,8 +46,8 @@ from pathlib import Path
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup - Servidor de Producao"
-SETUP_VERSION = "1.0.6"
-SETUP_DATE = "2026-10-01"
+SETUP_VERSION = "1.0.7"
+SETUP_DATE = "2026-10-05"
 
 # Cores ANSI (desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -254,33 +254,124 @@ def _token_do_store():
     return ""
 
 
-def resolver_token():
-    """Obtem o token GitHub (ambiente, store ou prompt). '' se indisponivel.
+def _status_token(token):
+    """Confere o token contra o repo privado de servidores.
 
-    O recebedor vive no repo privado `MovingMAK/maktrak-server`, entao o setup
-    de producao precisa de leitura nesse repo (o download usa a API de
-    conteudo do GitHub).
+    Retorna 'ok' (leitura confirmada), 'invalido' (401: token ruim/expirado),
+    'sem_acesso' (403/404: token valido, mas sem leitura no repo) ou 'erro'
+    (rede/indeterminado — nao da para julgar o token).
     """
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        print("  ✅ Usando GITHUB_TOKEN do ambiente")
-        return token.strip()
-    token = _token_do_store()
-    if token:
-        print("  ✅ Usando credenciais de ~/.git-credentials")
-        return token
-    if not sys.stdin.isatty():
-        return ""
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{REPO_SERVIDORES}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "maktrak-setup",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return "ok" if resp.status == 200 else "erro"
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return "invalido"
+        if exc.code in (403, 404):
+            return "sem_acesso"
+        return "erro"
+    except Exception:
+        return "erro"
+
+
+def _aceitar_token(token, origem):
+    """Valida um token candidato e diz se pode ser usado.
+
+    Devolve (token, True) quando o GitHub confirma a leitura, ou aceita o
+    token em falha de rede (nao ha como julgar). No 401/403/404 devolve
+    ('', False) com aviso — a credencial de `~/.git-credentials` costuma ser a
+    culpada — para o fluxo tentar a proxima origem.
+    """
+    token = token.strip()
+    if not token:
+        return "", False
+    status = _status_token(token)
+    if status == "ok":
+        print(f"  ✅ Token GitHub valido ({origem})")
+        return token, True
+    if status == "invalido":
+        print(f"  ⚠️ Token de {origem} invalido ou expirado (401) "
+              "— ignorando.")
+        return "", False
+    if status == "sem_acesso":
+        print(f"  ⚠️ Token de {origem} sem leitura em {REPO_SERVIDORES} "
+              "— ignorando.")
+        return "", False
+    print(f"  ⚠️ Nao foi possivel validar o token de {origem} (rede); "
+          "usando assim mesmo.")
+    return token, True
+
+
+def _prompt_token():
+    """Pede o token ao usuario (ate 3 tentativas) e devolve o validado.
+
+    '' quando o usuario cancela (Enter vazio). O loop evita derrubar a
+    instalacao por um token colado errado ou truncado.
+    """
     _titulo("Autenticacao GitHub (repo privado de servidores)")
     print("  O recebedor de deploy fica em "
           f"{REPO_SERVIDORES} (privado).")
     print("  Dica: defina GITHUB_TOKEN no ambiente para nao digitar aqui.")
     print("  (Este pedido e um TOKEN do GitHub, nao a senha do sistema.)")
-    try:
-        informado = getpass.getpass("  GitHub token (Enter = cancelar): ")
-    except Exception:
-        informado = ""
-    return informado.strip()
+    for _ in range(3):
+        try:
+            informado = getpass.getpass("  GitHub token (Enter = cancelar): ")
+        except Exception:
+            return ""
+        if not informado.strip():
+            return ""
+        token, ok = _aceitar_token(informado, "token informado")
+        if ok:
+            return token
+        print("     Tente de novo (Enter = cancelar).")
+    return ""
+
+
+def resolver_token():
+    """Obtem e valida o token GitHub (ambiente, prompt ou store).
+
+    O recebedor vive no repo privado `MovingMAK/maktrak-server`, entao o setup
+    de producao precisa de leitura nesse repo (o download usa a API de
+    conteudo do GitHub). Cada origem e conferida contra o GitHub antes de ser
+    aceita, e um token invalido/expirado (401) e descartado com aviso.
+
+    Prioridade: `GITHUB_TOKEN` do ambiente (validado) tem precedencia; em modo
+    interativo o usuario e consultado ANTES de confiar no
+    `~/.git-credentials` — assim uma credencial velha no store nao e usada sem
+    ele saber. Sem TTY (automacao/CI), resta o store validado.
+
+    '' se nenhuma origem fornecer um token utilizavel.
+    """
+    token, ok = _aceitar_token(
+        os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "",
+        "GITHUB_TOKEN do ambiente")
+    if ok:
+        return token
+
+    if sys.stdin.isatty():
+        token = _prompt_token()
+        if token:
+            return token
+        print("     Sem token informado; tentando a credencial salva em "
+              "~/.git-credentials.")
+
+    token = _token_do_store()
+    if token:
+        token, ok = _aceitar_token(token, "~/.git-credentials")
+        if ok:
+            return token
+        print("     Corrija ou remova a credencial invalida de "
+              "~/.git-credentials (ou defina GITHUB_TOKEN) e rode de novo.")
+    return ""
 
 
 # ============================================================================

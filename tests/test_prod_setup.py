@@ -23,8 +23,9 @@ server_setup = _load("server_setup", "server_setup.py")
 class _FakeResp:
     """Context manager minimo que devolve um corpo fixo (substitui urlopen)."""
 
-    def __init__(self, dados):
+    def __init__(self, dados, status=200):
         self._dados = dados
+        self.status = status
 
     def read(self):
         return self._dados
@@ -216,6 +217,103 @@ class ServerSetupTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertFalse(mudou)
             self.assertFalse((Path(tmpdir) / "server_api").exists())
+
+    def test_sem_tty_cai_do_ambiente_invalido_para_o_store(self):
+        """Sem TTY, 401 numa origem nao aborta: valida e tenta a proxima."""
+        codigos = iter([401, 200])
+
+        def fake_urlopen(req, timeout=0):
+            if next(codigos) == 200:
+                return _FakeResp(b"{}")
+            raise server_setup.urllib.error.HTTPError(
+                req.full_url, 401, "Unauthorized", {}, None)
+
+        with mock.patch.dict(server_setup.os.environ,
+                             {"GITHUB_TOKEN": "velho"}, clear=True), \
+                mock.patch.object(server_setup, "_token_do_store",
+                                  return_value="bom"), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  fake_urlopen), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=False):
+            self.assertEqual(server_setup.resolver_token(), "bom")
+
+    def test_interativo_pergunta_antes_do_store(self):
+        """Interativo: o usuario e consultado antes de usar o store."""
+        consultas_store = []
+
+        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=True), \
+                mock.patch.object(server_setup.getpass, "getpass",
+                                  lambda prompt="": "digitado"), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  lambda req, timeout=0: _FakeResp(b"{}")), \
+                mock.patch.object(
+                    server_setup, "_token_do_store",
+                    side_effect=lambda: consultas_store.append(1) or "antigo"):
+            self.assertEqual(server_setup.resolver_token(), "digitado")
+        self.assertEqual(consultas_store, [])
+
+    def test_interativo_com_enter_cai_para_o_store(self):
+        """Enter no prompt cancela; o store (validado) ainda e tentado."""
+        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=True), \
+                mock.patch.object(server_setup.getpass, "getpass",
+                                  lambda prompt="": ""), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  lambda req, timeout=0: _FakeResp(b"{}")), \
+                mock.patch.object(server_setup, "_token_do_store",
+                                  return_value="salvo"):
+            self.assertEqual(server_setup.resolver_token(), "salvo")
+
+    def test_token_digitado_invalido_repergunta(self):
+        """Token colado errado nao derruba a instalacao: o prompt repete."""
+        respostas = iter(["errado", "certo"])
+        codigos = iter([401, 200])
+
+        def fake_urlopen(req, timeout=0):
+            if next(codigos) == 200:
+                return _FakeResp(b"{}")
+            raise server_setup.urllib.error.HTTPError(
+                req.full_url, 401, "Unauthorized", {}, None)
+
+        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=True), \
+                mock.patch.object(server_setup.getpass, "getpass",
+                                  lambda prompt="": next(respostas)), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  fake_urlopen):
+            self.assertEqual(server_setup.resolver_token(), "certo")
+
+    def test_token_invalido_em_todas_as_origens_retorna_vazio(self):
+        """Sem tty e com 401 em todas as origens, nao ha token utilizavel."""
+        def fake_urlopen(req, timeout=0):
+            raise server_setup.urllib.error.HTTPError(
+                req.full_url, 401, "Unauthorized", {}, None)
+
+        with mock.patch.dict(server_setup.os.environ,
+                             {"GITHUB_TOKEN": "velho"}, clear=True), \
+                mock.patch.object(server_setup, "_token_do_store",
+                                  return_value="tambem-velho"), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  fake_urlopen), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=False):
+            self.assertEqual(server_setup.resolver_token(), "")
+
+    def test_falha_de_rede_nao_descarta_o_token(self):
+        """Sem rede nao da para julgar o token; ele e mantido (nao regride)."""
+        def fake_urlopen(req, timeout=0):
+            raise OSError("sem rede")
+
+        with mock.patch.dict(server_setup.os.environ,
+                             {"GITHUB_TOKEN": "meu-token"}, clear=True), \
+                mock.patch.object(server_setup.urllib.request, "urlopen",
+                                  fake_urlopen):
+            self.assertEqual(server_setup.resolver_token(), "meu-token")
 
     def test_requisitos_fora_do_linux(self):
         original = server_setup.OS_TYPE
