@@ -29,7 +29,10 @@ fica no git. O comportamento do instalador é descrito no README.
 - O token GitHub do modo `prod` é validado contra a API antes de baixar o
   recebedor. Prioridade: `GITHUB_TOKEN` (validado) → prompt → store; em modo
   interativo o usuário é consultado antes de o script confiar no
-  `~/.git-credentials`, com até 3 tentativas para o token digitado. Credencial
+  `~/.git-credentials`, com até 3 tentativas para o token digitado. A digitação
+  usa `input()` (eco visível, como no `maktrak_setup`) em vez de `getpass` —
+  que não recebe digitação nem cola em alguns terminais/consoles de VM. Para
+  colar, Ctrl+Shift+V (Ctrl+V não cola no terminal). Credencial
   inválida/expirada (401) ou sem leitura no `maktrak-server` é descartada com
   aviso; sem TTY resta o store validado.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e

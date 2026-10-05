@@ -245,8 +245,10 @@ class ServerSetupTests(unittest.TestCase):
         with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
                 mock.patch.object(server_setup.sys.stdin, "isatty",
                                   return_value=True), \
+                mock.patch("builtins.input",
+                           lambda prompt="": "digitado"), \
                 mock.patch.object(server_setup.getpass, "getpass",
-                                  lambda prompt="": "digitado"), \
+                                  side_effect=AssertionError("getpass")), \
                 mock.patch.object(server_setup.urllib.request, "urlopen",
                                   lambda req, timeout=0: _FakeResp(b"{}")), \
                 mock.patch.object(
@@ -260,8 +262,7 @@ class ServerSetupTests(unittest.TestCase):
         with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
                 mock.patch.object(server_setup.sys.stdin, "isatty",
                                   return_value=True), \
-                mock.patch.object(server_setup.getpass, "getpass",
-                                  lambda prompt="": ""), \
+                mock.patch("builtins.input", lambda prompt="": ""), \
                 mock.patch.object(server_setup.urllib.request, "urlopen",
                                   lambda req, timeout=0: _FakeResp(b"{}")), \
                 mock.patch.object(server_setup, "_token_do_store",
@@ -282,11 +283,21 @@ class ServerSetupTests(unittest.TestCase):
         with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
                 mock.patch.object(server_setup.sys.stdin, "isatty",
                                   return_value=True), \
-                mock.patch.object(server_setup.getpass, "getpass",
-                                  lambda prompt="": next(respostas)), \
+                mock.patch("builtins.input",
+                           lambda prompt="": next(respostas)), \
                 mock.patch.object(server_setup.urllib.request, "urlopen",
                                   fake_urlopen):
             self.assertEqual(server_setup.resolver_token(), "certo")
+
+    def test_prompt_cancelado_no_eof_nao_quebra(self):
+        """Ctrl+D (EOF) no prompt cancela sem traceback."""
+        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
+                mock.patch.object(server_setup.sys.stdin, "isatty",
+                                  return_value=True), \
+                mock.patch("builtins.input", side_effect=EOFError), \
+                mock.patch.object(server_setup, "_token_do_store",
+                                  return_value=""):
+            self.assertEqual(server_setup.resolver_token(), "")
 
     def test_token_invalido_em_todas_as_origens_retorna_vazio(self):
         """Sem tty e com 401 em todas as origens, nao ha token utilizavel."""

@@ -316,16 +316,23 @@ def _prompt_token():
 
     '' quando o usuario cancela (Enter vazio). O loop evita derrubar a
     instalacao por um token colado errado ou truncado.
+
+    Le com `input()` (eco visivel), como no `maktrak_setup`: o modo sem eco do
+    `getpass` nao recebe digitacao nem cola em alguns terminais/consoles de VM.
+    O token fica visivel na tela — em terminal Linux, colar e Ctrl+Shift+V
+    (Ctrl+V nao cola).
     """
     _titulo("Autenticacao GitHub (repo privado de servidores)")
     print("  O recebedor de deploy fica em "
           f"{REPO_SERVIDORES} (privado).")
+    print("  Cole com Ctrl+Shift+V (Ctrl+V nao cola no terminal); o token "
+          "fica visivel na tela.")
     print("  Dica: defina GITHUB_TOKEN no ambiente para nao digitar aqui.")
     print("  (Este pedido e um TOKEN do GitHub, nao a senha do sistema.)")
     for _ in range(3):
         try:
-            informado = getpass.getpass("  GitHub token (Enter = cancelar): ")
-        except Exception:
+            informado = input("  GitHub token (Enter = cancelar): ")
+        except (EOFError, KeyboardInterrupt):
             return ""
         if not informado.strip():
             return ""
@@ -751,6 +758,7 @@ def main():
               f"{REPO_SERVIDORES} (repo privado).")
         print("   Defina GITHUB_TOKEN no ambiente (ou configure "
               "~/.git-credentials) e rode de novo.")
+        print("   Ex.: export GITHUB_TOKEN=<seu token>")
         return 1
 
     if sys.stdin.isatty():

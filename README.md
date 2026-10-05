@@ -83,7 +83,8 @@ Requisitos do modo `prod`: Linux com systemd e um token GitHub com leitura no
 repositório `maktrak-server` (privado). A origem do token, em ordem: o
 `GITHUB_TOKEN` do ambiente (tem precedência); o prompt — em modo interativo o
 usuário é consultado antes de o script confiar no `~/.git-credentials`, podendo
-repetir a digitação se o token colado for inválido; por fim o próprio store.
+repetir a digitação se o token colado for inválido (a digitação é visível na
+tela; cole com Ctrl+Shift+V); por fim o próprio store.
 Todo token é validado contra o GitHub antes de usar: credencial inválida ou
 expirada (401) é descartada com aviso e o setup tenta a próxima origem. Sem
 token utilizável o setup avisa e não instala nada. O que ainda falta
