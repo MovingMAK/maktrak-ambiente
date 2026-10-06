@@ -82,7 +82,7 @@ Caso queira usar a extensão Continue como alternativa, configure o JSON abaixo.
 > Substitua `SUA_CHAVE_API_AQUI_SK-...` pela chave que você criou nos pré-requisitos (nos 3 campos).
 
 4. **Abra o chat do Continue** — clique no ícone do Continue na barra lateral (ou `Ctrl+Alt+I`).
-5. **Teste** — no canto inferior do chat, selecione `DeepSeek V4 Flash` no dropdown de modelos e mande uma mensagem.
+5. **Teste** — no canto inferior do chat, selecione `DeepSeek V4 Flash` no dropdown de modelos e mande uma message.
 
 [1] [https://github.com](https://github.com/Vizards/deepseek-v4-for-copilot)
 [2] [https://deepseekai.guide](https://deepseekai.guide/tutorials/deepseek-with-vscode/)

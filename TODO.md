@@ -2,7 +2,7 @@
 
 > Pendências que atravessam os repositórios. Item resolvido sai daqui.
 
-## 1. Nomenclatura de arquivos: a regra contradiz o que está versionado
+## 1. Nomenclatura de files: a regra contradiz o que está versionado
 
 `NAMING_CONVENTIONS.md` exige nomes de **arquivo** em inglês e kebab-case. Na prática:
 
@@ -16,6 +16,6 @@ Idioma), então um agente pode lê-la como mandato para propor renames em massa.
 Decisão pendente — escolher uma:
 
 - (a) isentar documentação na regra: aplicar a nomenclatura a código, banco, API e
-  endpoints, não a nomes de arquivos de doc;
+  endpoints, não a nomes de files de doc;
 - (b) padronizar de fato os documentos existentes;
-- (c) aceitar a divergência e remover a menção a "arquivos" da regra.
+- (c) aceitar a divergência e remover a menção a "files" da regra.

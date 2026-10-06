@@ -14,7 +14,7 @@ Garantir que o script funcione corretamente em diferentes ambientes, com foco em
 
 ### 1. Testes unitários
 - Validar funções de detecção de sistema operacional.
-- Validar parsing de arquivos de configuração.
+- Validar parsing de files de configuração.
 - Validar lógica de decisão de instalação.
 - Validar regras de idempotência.
 

@@ -19,18 +19,19 @@ import urllib.request
 import ctypes
 import threading
 import signal
+import tempfile
 from pathlib import Path
 from abc import ABC, abstractmethod
 from urllib.parse import quote, unquote
 
 
 # ============================================================================
-# IDENTIFICACAO E VERSAO
+# IDENTIFICACAO E version
 # ============================================================================
 
 SETUP_NAME = "MakTrak Setup"
-SETUP_VERSION = "1.3.6"
-SETUP_DATE = "2026-08-08"
+SETUP_VERSION = "1.3.9"
+SETUP_DATE = "2026-09-25"
 
 # Cores ANSI (terminais modernos; desativadas quando a saida nao e TTY)
 ANSI_RESET = "\033[0m"
@@ -70,7 +71,7 @@ def _setup_windows_console():
 
 
 def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE):
-    """Imprime nome + versao + data do script, em destaque colorido.
+    """Imprime nome + version + data do script, em destaque colorido.
 
     Usado no inicio do orquestrador (main) e no init() de cada repo_setup.py.
     """
@@ -85,6 +86,11 @@ def print_banner(name, version=SETUP_VERSION, accent=ANSI_CYAN, date=SETUP_DATE)
 
 MOVINGMAK_REPOS_BASE = Path.home() / "repos" / "movingmak" / "maktrak"
 SUDO_KEEPALIVE_INTERVAL = 120  # segundos entre renovacoes do ticket sudo
+
+# Repo publico deste proprio instalador (mesma origem do maktrak_setup.py). O
+# modo prod baixa daqui o `server_setup.py` — ver _delegate_prod_setup().
+SETUP_RAW_BASE = "https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente"
+PROD_SETUP_FILE = "server_setup.py"
 
 REPOSITORIES = {
     "ambiente":    "https://github.com/MovingMAK/maktrak-ambiente.git",
@@ -109,8 +115,24 @@ DEV_REPOSITORIES = {
     "servidor":   ["servidores"],
 }
 
-# Producao (servidor-prod, IA/Ollama) e PROXIMA ETAPA; ainda sem modulos.
-PROD_MODULES = {}
+# Producao: servidor em operacao, SEM ferramentas de dev. Nao ha clone de
+# repositorio nem build: o modo prod sai do orquestrador e delega para o
+# `server_setup.py` (baixado do repo publico), que instala o runtime Python e
+# sobe o recebedor de deploy como servico. O codigo da API chega depois, pelo
+# `POST /maktrak/deploy`.
+# Os catalogos abaixo sao apenas informativos: quem seleciona e PROD_MODULES,
+# e quem instala de fato e o server_setup.py.
+# "ia" (Ollama/Open WebUI) ainda NAO entra na selecao: depende das decisoes de
+# IMPLEMENTATION_QUESTIONS.md.
+PROD_MODULES = {
+    "servidor-prod": [],
+}
+
+# Vazio de proposito: producao nao clona repositorios (ver server_setup.py).
+PROD_REPOSITORIES = {
+    "servidor-prod": [],
+    "ia":            [],
+}
 
 # ============================================================================
 # _PKG - CATALOGO DE SOFTWARE CONHECIDO
@@ -134,11 +156,11 @@ _PKG = {
 }
 
 # ============================================================================
-# COMANDO DE VERSAO POR APLICATIVO (para assert_executable)
+# COMANDO DE version POR APLICATIVO (para assert_executable)
 # ============================================================================
 # Formato: nome -> (binario, [args]) | None
 #   None       => verificar apenas PRESENCA (apps GUI sem --version confiavel)
-#   (bin, args)=> binario + argumentos que imprimem a versao e saem com rc=0
+#   (bin, args)=> binario + argumentos que imprimem a version e saem com rc=0
 _VERSION_CMD = {
     "freecad": None,                         # GUI; --version trava sem display
     "kicad": ("kicad-cli", ["--version"]),   # CLI rapido, nao abre a GUI
@@ -431,9 +453,9 @@ class SetupBase(ABC):
     def assert_executable(self, name, timeout=20):
         """Verifica se um executavel esta instalado (PRESENCA e obrigatoria).
 
-        Para a maioria, tambem roda um comando de versao (--version por
+        Para a maioria, tambem roda um comando de version (--version por
         padrao, ou o mapeado em _VERSION_CMD). FALHA somente se o binario
-        nao existir. Se a checagem de versao falhar/timeout, registra o
+        nao existir. Se a checagem de version falhar/timeout, registra o
         executavel como OK com aviso (instalado nao e falha).
         No Windows, se nao estiver no PATH, resolve em Program Files.
         """
@@ -459,9 +481,9 @@ class SetupBase(ABC):
                     if version:
                         self.results[f"{name}_version"] = version[0][:60]
             except subprocess.TimeoutExpired:
-                print(f"  ⚠️ {name}: checagem de versao excedeu {timeout}s (ignorado)")
+                print(f"  ⚠️ {name}: checagem de version excedeu {timeout}s (ignorado)")
             except Exception as exc:
-                print(f"  ⚠️ {name}: nao foi possivel obter versao: {exc}")
+                print(f"  ⚠️ {name}: nao foi possivel obter version: {exc}")
         self.results[name] = True
         return True
 
@@ -525,7 +547,7 @@ class SetupBase(ABC):
         return True
 
     def flutter_build(self, path, platform_target):
-        """Compila um projeto Flutter para a plataforma alvo."""
+        """Compila um projeto Flutter para a plataforma target."""
         self._ensure_flutter_path()
         self._run(["flutter", "build", platform_target], cwd=str(path))
 
@@ -605,7 +627,7 @@ class SetupBase(ABC):
         """Instala JDK + KVM + cmdline-tools + SDK + aceita licencas.
 
         As licencas sao aprovadas ANTES de baixar qualquer pacote ou imagem
-        de sistema, sem prompt interativo (arquivos em <SDK>/licenses/).
+        de sistema, sem prompt interativo (files em <SDK>/licenses/).
         Retorna False se o JDK nao puder ser garantido (bloqueia AVDs/APK).
         """
         if not self._android_install_jdk():
@@ -713,7 +735,7 @@ class SetupBase(ABC):
     def _android_accept_licenses(self, sdk_root=None):
         """Aceita licencas do Android SDK sem prompt interativo.
 
-        Escreve diretamente os arquivos de licenca em <SDK>/licenses/,
+        Escreve diretamente os files de licenca em <SDK>/licenses/,
         com os hashes conhecidos da android-sdk-license. Nao depende de
         TTY nem de resposta do usuario.
         """
@@ -731,7 +753,7 @@ class SetupBase(ABC):
             ]) + "\n", encoding="utf-8")
         (licenses_dir / "android-sdk-preview-license").write_text(
             "84831b9409646a918e30573bab4c9c91346d8abd\n", encoding="utf-8")
-        print("  ✅ Licencas Android aceitas (arquivos gravados no SDK)")
+        print("  ✅ Licencas Android aceitas (files gravados no SDK)")
 
     def _android_ensure_sdkmanager(self, sdk_root):
         """Garante que sdkmanager esta instalado e executavel."""
@@ -1240,9 +1262,17 @@ def _install_base_software():
 
 
 def _ui_select_mode():
-    """Solicita ao usuario o modo. Producao (servidor-prod/IA) e proxima etapa."""
-    print("\nModo: dev (producao e proxima etapa)")
-    return "dev"
+    """Solicita ao usuario o modo: dev (desenvolvimento) ou prod (producao)."""
+    print("\n--- Selecionar modo ---")
+    print("1. dev   (desenvolvimento: ferramentas de build/edicao no host)")
+    print("2. prod  (producao: servidor em operacao, sem ferramentas de dev)")
+    while True:
+        escolha = input("Modo (1=dev, 2=prod) [default: dev]: ").strip().lower()
+        if escolha in ("", "1", "dev"):
+            return "dev"
+        if escolha in ("2", "prod"):
+            return "prod"
+        print(f"  ⚠️ Opcao invalida: {escolha!r} (use 1 ou 2)")
 
 
 def _ui_select_components(items_dict, label):
@@ -1267,7 +1297,11 @@ def _ui_select_components(items_dict, label):
 
 
 def _ui_confirm(mode, components, branch="main"):
-    """Exibe resumo e solicita confirmacao do usuario."""
+    """Exibe resumo e solicita confirmacao do usuario.
+
+    Usado apenas pelo modo `dev`: o modo `prod` delega para o server_setup.py,
+    que exibe o proprio resumo e pede a propria confirmacao.
+    """
     print(f"\n--- Resumo da Instalacao ---")
     print(f"Modo: {mode}")
     print(f"Branch: {branch}")
@@ -1280,13 +1314,15 @@ def _ui_confirm(mode, components, branch="main"):
     repos = _get_repositories_to_clone(mode, components)
     if repos:
         print(f"Repositorios: {', '.join(repos)}")
-    confirm = input("\nProsseguir? (YES/no): ").strip().lower()
-    return confirm in {"yes", ""}
+    # Aceita "y"/"yes" (e Enter = default SIM). Sem isto, responder "y" caia
+    # no False e o setup cancelava mesmo com o usuario confirmando.
+    confirm = input("\nProsseguir? (Y/n): ").strip().lower()
+    return confirm in {"y", "yes", ""}
 
 
-def _ui_select_branch():
+def _ui_select_branch(pergunta="Branch dos repositorios? (Enter = main): "):
     """Solicita ao usuario uma branch especifica (default: main)."""
-    branch = input("Branch dos repositorios? (Enter = main): ").strip()
+    branch = input(pergunta).strip()
     return branch if branch else "main"
 
 
@@ -1652,12 +1688,11 @@ def _git_register_sublime_merge(repo_path):
 
 
 def _get_repositories_to_clone(mode, components):
-    """Retorna lista de chaves de repositorios a clonar."""
-    if mode != "dev":
-        return []
+    """Retorna lista de chaves de repositorios a clonar (catalogo do modo)."""
+    source = DEV_REPOSITORIES if mode == "dev" else PROD_REPOSITORIES
     repos = set()
     for component in components:
-        repos.update(DEV_REPOSITORIES.get(component, []))
+        repos.update(source.get(component, []))
     return sorted(repos)
 
 
@@ -1668,6 +1703,54 @@ def _get_software_for_components(components, mode):
     for c in components:
         software.update(source.get(c, []))
     return sorted(software)
+
+
+# ============================================================================
+# PRODUCAO (delegacao para o server_setup.py)
+# ============================================================================
+
+def _download_texto(urls):
+    """Baixa o primeiro URL que responder. Retorna os bytes ou None."""
+    for url in urls:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                return resp.read()
+        except Exception as exc:
+            print(f"  ⚠️ Falha ao baixar {url}: {exc}")
+    return None
+
+
+def _delegate_prod_setup(branch="main"):
+    """Baixa o server_setup.py (repo publico) e delega a instalacao de prod.
+
+    O modo prod nao clona repositorio nem builda: o `server_setup.py` instala
+    o runtime e sobe o recebedor de deploy como servico systemd. Ele roda como
+    processo separado (herda o terminal) para poder fazer as proprias
+    perguntas. Retorna o codigo de saida do filho.
+    """
+    # Mesma branch do repo de servidores; se ela ainda nao existir neste repo,
+    # cai para `main` (o server_setup.py pode nao estar na branch de trabalho).
+    urls = [f"{SETUP_RAW_BASE}/{branch}/{PROD_SETUP_FILE}"]
+    if branch != "main":
+        urls.append(f"{SETUP_RAW_BASE}/main/{PROD_SETUP_FILE}")
+    dados = _download_texto(urls)
+    if dados is None:
+        print(f"❌ Nao foi possivel baixar {PROD_SETUP_FILE}. "
+              "Verifique a conexao e a branch informada.")
+        return 1
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="maktrak-prod-"))
+    destino = tmp_dir / PROD_SETUP_FILE
+    try:
+        destino.write_bytes(dados)
+        print(f"  ✅ {PROD_SETUP_FILE} baixado ({len(dados)} bytes; "
+              f"branch dos servidores: {branch})")
+        print("  Repassando o controle para o setup de producao...")
+        return subprocess.run(
+            [sys.executable, str(destino), "--branch", branch]
+        ).returncode
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ============================================================================
@@ -1697,7 +1780,19 @@ def main():
 
     # 2. Interacao com usuario (todas as perguntas primeiro)
     mode = _ui_select_mode()
-    components = _ui_select_components(DEV_MODULES, "Desenvolvimento")
+    catalogo = DEV_MODULES if mode == "dev" else PROD_MODULES
+    rotulo = "Desenvolvimento" if mode == "dev" else "Producao"
+    components = _ui_select_components(catalogo, rotulo)
+
+    # Producao e outro fluxo: sem ferramentas de dev, sem clone, sem build.
+    # Sai do orquestrador e delega para o `server_setup.py` (baixado do repo
+    # publico), que instala o runtime e sobe o recebedor de deploy.
+    if mode == "prod":
+        branch = _ui_select_branch(
+            "Branch do repo de servidores (files do recebedor)? "
+            "(Enter = main): ")
+        print("\n--- Modo prod: delegando para o server_setup.py ---")
+        sys.exit(_delegate_prod_setup(branch))
 
     repos = _get_repositories_to_clone(mode, components)
     branch = _ui_select_branch() if repos else "main"
@@ -1706,8 +1801,9 @@ def main():
         print("Instalacao cancelada.")
         sys.exit(0)
 
-    # 3. Software base — SEMPRE instalado (git + Chrome), antes do prompt de
-    #    credenciais GitHub (obter o token) e antes do clone.
+    # 3. Software base (git + Chrome) — sempre no modo dev, antes do prompt de
+    #    credenciais GitHub (obter o token) e antes do clone. Producao nao usa
+    #    nada disto: ja saiu acima para o server_setup.py.
     _install_base_software()
 
     # 4. Credenciais GitHub (todos os dados do usuario obtidos primeiro)
@@ -1787,16 +1883,11 @@ def main():
 
 
 def _get_repo_key(component):
-    """Mapeia componente para chave de repositorio."""
-    dirs = DEV_REPOSITORIES.get(component)
+    """Mapeia componente para chave de repositorio (dev ou prod)."""
+    dirs = DEV_REPOSITORIES.get(component) or PROD_REPOSITORIES.get(component)
     if dirs:
         return dirs[0]
-    # Modo prod: servidor-prod e ia usam a config do repo servidores
-    PROD_REPOSITORIES = {
-        "servidor-prod": "servidores",
-        "ia": "servidores",
-    }
-    return PROD_REPOSITORIES.get(component, component)
+    return component
 
 
 if __name__ == "__main__":

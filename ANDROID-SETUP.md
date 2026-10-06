@@ -8,7 +8,7 @@ Requisitos minimos:
 - Android SDK command-line tools
 - `platform-tools` / `adb`
 - uma Android SDK Platform
-- uma versao de Android Build Tools
+- uma version de Android Build Tools
 - licencas do Android SDK aceitas
 - depuracao USB ativa no celular
 

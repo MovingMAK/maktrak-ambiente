@@ -3,12 +3,16 @@
 Data da revisao: 2026-08-06
 
 Este documento consolida os pontos encontrados na revisao conjunta do
-orquestrador, das derivadas e da documentacao. Nenhuma correcao descrita aqui
-foi aplicada ainda.
+orquestrador, das derivadas e da documentacao.
+
+> Atualizacao (2026-09-25): os bloqueadores **1** e **2** foram resolvidos. O
+> modo `prod` deixou de clonar repositorios e de executar a derivada de dev:
+> ele delega para o `server_setup.py`, que instala o runtime e sobe o recebedor
+> de deploy como servico systemd. Ver `README.md` e `IMPLEMENTATION.md`.
 
 ## Bloqueadores
 
-### 1. Producao falha em uma maquina limpa
+### 1. Producao falha em uma maquina limpa — ✅ resolvido
 
 O modo `prod` nao clona repositorios, mas o orquestrador exige a existencia de
 `repo_setup.py` em `~/repos/movingmak/maktrak/servidores/`. Assim, uma maquina
@@ -16,11 +20,11 @@ de producao sem clone previo falha antes de executar qualquer configuracao.
 
 - Codigo: `maktrak_setup.py`, `_get_repositories_to_clone()` e `main()`.
 - Impacto: instalacao de producao nao e autonoma.
-- Direcao: clonar o repositorio de servidores/deploy tambem em `prod`, ou
-  carregar uma configuracao de producao explicitamente versionada pelo
-  bootstrap.
+- Direcao (aplicada em 2026-09-25): o modo `prod` saiu do fluxo de clone e de
+  derivadas. `main()` delega para `_delegate_prod_setup()`, que baixa o
+  `server_setup.py` do repositorio publico e o executa. Nenhum clone e exigido.
 
-### 2. Perfil `servidor-prod` executa tarefas de desenvolvimento
+### 2. Perfil `servidor-prod` executa tarefas de desenvolvimento — ✅ resolvido
 
 `servidor-prod` e `servidor` carregam a mesma `ServerSetup`. Ela instala VS
 Code, prepara um venv de desenvolvimento e tenta gerar builds Flutter web.
@@ -41,6 +45,11 @@ configurar o nginx (sem `server` block, sem reverse proxy). Ao contrario de
 - Direcao: criar `ProductionServerSetup` dedicado a runtime, servicos,
   configuracao e health checks (unit systemd para o uvicorn + config real de
   nginx). Manter builds no perfil de desenvolvimento ou no CI.
+- Resolvido em parte (2026-09-25): o modo `prod` nao carrega mais a derivada de
+  dev — delega para o `server_setup.py`, que entrega unit systemd para o
+  recebedor de deploy e confere `GET /maktrak/movingmak/deploy_health`. Continua
+  pendente o que ainda nao existe no projeto: unit/nginx para a API em si (porta
+  8000) e health checks continuos.
 
 ### 3. Requisitos declarados nao correspondem ao que e instalado
 
@@ -171,7 +180,7 @@ Manter `maktrak_setup.py` pequeno em responsabilidades de infraestrutura:
 
 - interface com usuario, privilegios e atualizacao do sistema;
 - clone, autenticacao Git e carregamento versionado das derivadas;
-- catalogo de pacotes e primitives reutilizaveis para subprocessos, arquivos,
+- catalogo de pacotes e primitives reutilizaveis para subprocessos, files,
   VS Code, Flutter, Android, Python e PlatformIO;
 - execucao de fases e consolidacao de resultados.
 
@@ -220,7 +229,7 @@ O guia manual usa command-line tools `14742923`, enquanto o instalador baixa
 `11076708`. Tambem pede `sdkmanager --licenses`, embora o fluxo automatizado
 grave as aprovacoes antes do download.
 
-- Direcao: escolher uma unica versao ou explicar como atualizar ambas. Separar
+- Direcao: escolher uma unica version ou explicar como atualizar ambas. Separar
   explicitamente o fluxo manual do fluxo automatizado.
 
 ### VSCODE_TIPS.md
@@ -248,7 +257,7 @@ A suite atual cobre apenas escrita de credenciais e a presenca de Git no host.
 Adicionar testes com mocks para:
 
 - selecao de perfis e repositorios em `dev` e `prod`;
-- compatibilidade de versao bootstrap/derivada;
+- compatibilidade de version bootstrap/derivada;
 - propagacao de falhas de subprocessos e relatorio final;
 - instalacao Android, licencas antes de downloads e criacao de AVD;
 - carregamento correto de `ServerSetup`, `ProductionServerSetup` e `IaSetup`;

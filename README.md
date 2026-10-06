@@ -1,8 +1,13 @@
 # MakTrak Ambiente
 
 Configuração rápida de ambiente para desenvolvimento e produção no projeto
-MakTrak. Um único instalador (`maktrak_setup.py`) é baixado e executado; ele
-atualiza o sistema, clona os repositórios dos componentes e configura cada um.
+MakTrak. Um único instalador é baixado e executado:
+
+- **`dev`** — o `maktrak_setup.py` atualiza o sistema, clona os repositórios
+  dos componentes e configura cada um;
+- **`prod`** — o `maktrak_setup.py` delega para o `server_setup.py` (baixado do
+  mesmo repositório), que instala o runtime do servidor e sobe o recebedor de
+  deploy. Sem clonar repositórios e sem buildar.
 
 ## Como executar
 
@@ -39,22 +44,69 @@ executá-los localmente.
   vivo durante a execução;
 - atualiza o ambiente (`apt upgrade` / `winget upgrade --all`);
 - instala sempre o software base: git e Google Chrome (browser essencial);
-- pergunta quais componentes instalar (modo dev) e confirma o resumo;
+- pergunta o **modo** — `dev` (desenvolvimento) ou `prod` (produção) — os
+  componentes do modo e confirma o resumo;
 - coleta ou reutiliza credenciais GitHub para repositórios privados;
 - clona/atualiza os repositórios dos componentes selecionados;
 - executa o setup de cada componente e consolida um relatório final.
+
+No modo `prod` os passos de clone, extensões do VS Code e derivadas **não**
+rodam: o instalador baixa e executa o `server_setup.py` (ver “Modos”).
+
+### Modos
+
+| Modo | Uso | Componentes |
+|------|-----|-------------|
+| `dev` | desenvolvimento (ferramentas de build/edição no host) | `ambiente`, `mecanica`, `eletronica`, `firmware`, `servidor` |
+| `prod` | servidor em operação (sem ferramentas de dev) | `servidor-prod` |
+
+No modo `prod` **nada é clonado nem buildado**. O `maktrak_setup.py` baixa o
+`server_setup.py` (mesmo repositório, mesma branch escolhida) e o executa. Esse
+script:
+
+1. instala o runtime Python (venv em `~/.venvs/maktrak-server` com
+   FastAPI/uvicorn/pydantic/starlette);
+2. baixa o recebedor de deploy (`deploy.py`, `errors.py` e
+   `deploy_receiver.py`, do repositório `maktrak-server`) para a pasta do
+   projeto;
+3. cria e sobe o serviço systemd `maktrak-receiver.service` (porta 8001) — a unit
+   sobe com `--max-kb` (default **100 KB**, o mesmo do recebedor): o pacote (só o
+   conteúdo da pasta `exec/`) tem ~20 KB;
+4. confere `GET /maktrak/movingmak/deploy_health` e imprime o relatório.
+
+O código da API chega depois, pelo `POST /maktrak/deploy` — por isso a pasta do
+projeto (`~/maktrak-server` por default) fica fora do clone de desenvolvimento
+(`~/repos/movingmak/maktrak/`). O deploy substitui apenas a pasta
+`server_api/exec/`; os bancos em `server_api/database/` ficam intactos.
+
+Requisitos do modo `prod`: Linux com systemd e um token GitHub com leitura no
+repositório `maktrak-server` (privado). A origem do token, em ordem: o
+`GITHUB_TOKEN` do ambiente (tem precedência); o prompt — em modo interativo o
+usuário é consultado antes de o script confiar no `~/.git-credentials`, podendo
+repetir a digitação se o token colado for inválido (a digitação é visível na
+tela; cole com Ctrl+Shift+V); por fim o próprio store.
+Todo token é validado contra o GitHub antes de usar: credencial inválida ou
+expirada (401) é descartada com aviso e o setup tenta a próxima origem. Sem
+token utilizável o setup avisa e não instala nada. O que ainda falta
+em produção — unit/nginx para a API em si (porta 8000) e health checks
+contínuos — está em `IMPLEMENTATION_QUESTIONS.md`.
 
 ## Arquitetura: classe base + scripts derivados
 
 A instalação é dividida em duas partes:
 
-- `maktrak_setup.py` — o único arquivo baixado. Contém o orquestrador
+- `maktrak_setup.py` — o arquivo baixado pelo bootstrap. Contém o orquestrador
   (privilégios, atualização do ambiente, seleção, clone e relatório) e a
   classe base `SetupBase`, com o catálogo de software (`_PKG`) e os helpers
   reutilizáveis (apt/snap/winget, git, Flutter, Android, VS Code etc.).
 - `repo_setup.py` — um por repositório de componente (`maktrak-ambiente`,
   `maktrak-hw`, `maktrak-fw`, `maktrak-server`). Define uma classe que herda
   de `SetupBase` e declara apenas o que é específico daquele componente.
+- `server_setup.py` — o setup de **produção**. Ao contrário das derivadas, é
+  **autossuficiente de propósito**: não importa `maktrak_setup` e não depende de
+  clone, para poder rodar sozinho num equipamento limpo. O orquestrador o baixa
+  e executa quando o modo é `prod`; ele também pode ser baixado e rodado
+  diretamente numa máquina de produção.
 
 Cada script derivado implementa as mesmas 4 fases:
 
@@ -75,3 +127,6 @@ dependência de caminho.
   `MovingMAK/maktrak-ambiente` (branch `main`).
 - Durante a execução, o script pode pedir usuário/token do GitHub para
   acessar repositórios privados da organização.
+- No modo `prod` são baixados dois files do repositório público
+  (`maktrak_setup.py` e `server_setup.py`); os files do recebedor vêm do
+  `maktrak-server` (privado) via API de conteúdo do GitHub, usando o token.
