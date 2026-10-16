@@ -607,9 +607,7 @@ def health_check(porta, tentativas=20):
         except Exception:
             time.sleep(1)
             continue
-        deploy = dados.get("deploy") if isinstance(dados, dict) else None
-        versao = deploy.get("version") if isinstance(deploy, dict) else None
-        detalhe = (f"deploy.version {versao} - "
+        detalhe = (f"deploy_count {dados.get('deploy_count')} - "
                    f"{dados.get('message')}")
         if dados.get("status") == STATUS_ONLINE:
             return True, detalhe
