@@ -1,6 +1,6 @@
 # Diretivas gerais para agentes de IA
 
-Versão 1.0 — 2026-09-12 · ao alterar este arquivo, bumpe a versão
+Versão 1.1 — 2026-10-17 · ao alterar este arquivo, bumpe a versão
 
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
@@ -66,6 +66,13 @@ documento.
   completam — pedido de commit inclui o `add` dos arquivos citados. Nunca, por
   iniciativa própria: `push`, `branch`, `tag`, `merge`, `rebase`, `amend`, `reset`,
   `stash` ou qualquer variante com `--force`.
+- **Conflito de merge:** o padrão da empresa é commitar o merge com os marcadores de
+  conflito e resolvê-los no commit imediatamente seguinte, em vez de segurar o merge
+  aberto. Não trate isso como erro nem proponha reescrever o histórico para
+  "consertar" o merge. Efeito conhecido e aceito: o commit do merge não é um estado
+  válido do repositório (o arquivo fica com os marcadores), então checkout, build ou
+  `bisect` naquele commit específico veem o conteúdo quebrado — a versão boa é a do
+  commit seguinte.
 - **Escopo:** faça só o que foi pedido. Problema colateral que encontrar: relate, não
   corrija.
 - **Sem revoluções:** não refatore, não renomeie arquivo, variável ou tipo, não
