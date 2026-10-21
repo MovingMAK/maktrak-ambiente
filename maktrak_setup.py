@@ -115,10 +115,10 @@ DEV_REPOSITORIES = {
     "servidor":   ["servidores"],
 }
 
-# Producao: servidor em operacao, SEM ferramentas de dev. Nao ha clone de
-# repositorio nem build: o modo prod sai do orquestrador e delega para o
-# `server_setup.py` (baixado do repo publico), que instala o runtime Python e
-# sobe o recebedor de deploy como servico. O codigo da API chega depois, pelo
+# Producao: servidor em operacao, SEM ferramentas de dev. O orquestrador nao
+# clona repositorio de dev nem builda: delega para o `server_setup.py`
+# (baixado do repo publico), que clona o repositorio do servidor e executa o
+# `install_server.py` dele. O codigo da API chega depois, pelo
 # `POST /maktrak/deploy`.
 # Os catalogos abaixo sao apenas informativos: quem seleciona e PROD_MODULES,
 # e quem instala de fato e o server_setup.py.
@@ -128,7 +128,8 @@ PROD_MODULES = {
     "servidor-prod": [],
 }
 
-# Vazio de proposito: producao nao clona repositorios (ver server_setup.py).
+# Vazio de proposito: producao nao clona repositorios de dev (o clone do
+# repositorio do servidor fica a cargo do server_setup.py).
 PROD_REPOSITORIES = {
     "servidor-prod": [],
     "ia":            [],
@@ -1723,9 +1724,9 @@ def _download_texto(urls):
 def _delegate_prod_setup(branch="main"):
     """Baixa o server_setup.py (repo publico) e delega a instalacao de prod.
 
-    O modo prod nao clona repositorio nem builda: o `server_setup.py` instala
-    o runtime e sobe o recebedor de deploy como servico systemd. Ele roda como
-    processo separado (herda o terminal) para poder fazer as proprias
+    O modo prod nao instala ferramentas de dev nem builda: o `server_setup.py`
+    clona o repositorio do servidor e chama o `install_server.py` dele. Roda
+    como processo separado (herda o terminal) para poder fazer as proprias
     perguntas. Retorna o codigo de saida do filho.
     """
     # Mesma branch do repo de servidores; se ela ainda nao existir neste repo,
@@ -1784,9 +1785,9 @@ def main():
     rotulo = "Desenvolvimento" if mode == "dev" else "Producao"
     components = _ui_select_components(catalogo, rotulo)
 
-    # Producao e outro fluxo: sem ferramentas de dev, sem clone, sem build.
-    # Sai do orquestrador e delega para o `server_setup.py` (baixado do repo
-    # publico), que instala o runtime e sobe o recebedor de deploy.
+    # Producao e outro fluxo: sem ferramentas de dev e sem build. Sai do
+    # orquestrador e delega para o `server_setup.py` (baixado do repo
+    # publico), que clona o servidor e roda o instalador do servico.
     if mode == "prod":
         branch = _ui_select_branch(
             "Branch do repo de servidores (arquivos do recebedor)? "

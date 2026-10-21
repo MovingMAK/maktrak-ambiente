@@ -117,229 +117,77 @@ class ProducaoNoOrquestradorTests(unittest.TestCase):
 
 
 class ServerSetupTests(unittest.TestCase):
-    """O server_setup.py precisa ser autossuficiente e idempotente."""
+    """O server_setup.py e um bootstrap fino: clona e delega ao instalador."""
 
     def test_nao_depende_do_orquestrador(self):
         fonte = (ROOT / "server_setup.py").read_text(encoding="utf-8")
         self.assertNotIn("import maktrak_setup", fonte)
         self.assertNotIn("from maktrak_setup import", fonte)
 
-    def test_recebedor_completo(self):
-        """`deploy_receiver` -> `deploy` -> `errors`: os tres andam juntos."""
-        self.assertEqual(set(server_setup.files_RECEBEDOR), {
-            "server_api/exec/deploy.py",
-            "server_api/exec/deploy_receiver.py",
-            "server_api/exec/errors.py",
-        })
-
-    def test_version_declarada(self):
-        self.assertTrue(server_setup.SETUP_VERSION)
-        self.assertTrue(server_setup.SETUP_DATE)
-
-    def test_unit_exposta_na_rede(self):
-        target = Path("/srv/proj")
-        texto = server_setup.unit_text(
-            "maktrak", target, 8001, True, "/opt/venv/bin/python", 300)
-        self.assertIn("User=maktrak", texto)
-        self.assertIn("Restart=always", texto)
-        self.assertIn(f"WorkingDirectory={target / 'server_api'}", texto)
-        self.assertIn(f"ExecStart=/opt/venv/bin/python "
-                      f"{target / 'server_api' / 'exec' / 'deploy_receiver.py'} "
-                      f"--port 8001 --extern --max-kb 300", texto)
-        self.assertIn("[Install]", texto)
-
-    def test_unit_apenas_local(self):
-        texto = server_setup.unit_text("u", Path("/p"), 9001, False, "/py", 512)
-        self.assertIn("--port 9001", texto)
-        self.assertNotIn("--extern", texto)
-        self.assertIn("--max-kb 512", texto)
-
-    def test_unit_limite_do_pacote(self):
-        """O servico de producao sobe com `--max-kb` explicito (o pacote e so o
-        conteudo da pasta exec/, ~20 KB — 100 KB sobra)."""
-        self.assertEqual(server_setup.PACOTE_KB_PADRAO, 100)
-        texto = server_setup.unit_text("u", Path("/p"), 8001, True, "/py")
-        self.assertIn("--max-kb 100", texto)
-
-    def test_target_e_porta_default(self):
-        self.assertEqual(server_setup.PORTA_PADRAO, 8001)
-        self.assertEqual(server_setup.target_PADRAO,
+    def test_defaults(self):
+        self.assertEqual(server_setup.PORTA_PADRAO, 8000)
+        self.assertEqual(server_setup.DESTINO_PADRAO,
                          Path.home() / "maktrak-server")
+        self.assertIn("maktrak-server.git", server_setup.REPO_SERVIDORES)
 
-    def test_health_check_usa_o_endpoint_do_recebedor(self):
-        """O endpoint vem de `server_api/doc/Proposta_API.md` §2.0.1 (fonte única)."""
-        urls = []
+    def test_ambiente_git_sem_token(self):
+        env = server_setup._ambiente_git("")
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        valores = [v for k, v in env.items() if k.startswith("GIT_CONFIG_VALUE_")]
+        self.assertFalse(any(v.startswith("Authorization: Basic") for v in valores))
 
-        def fake_urlopen(url, timeout=0):
-            urls.append(url)
-            return _FakeResp(b'{"status": 0, "deploy_count": 0, '
-                             b'"deploy_epoch": 1780000000, '
-                             b'"deploy_timestamp": "2026-05-28T20:26:40", '
-                             b'"message": "online: no ar"}')
+    def test_ambiente_git_com_token_fora_do_argv(self):
+        with mock.patch.dict(server_setup.os.environ, {}, clear=True):
+            env = server_setup._ambiente_git("segredo-123")
+        indice = int(env["GIT_CONFIG_COUNT"]) - 1
+        self.assertEqual(env[f"GIT_CONFIG_KEY_{indice}"],
+                         "http.https://github.com/.extraheader")
+        valor = env[f"GIT_CONFIG_VALUE_{indice}"]
+        self.assertTrue(valor.startswith("Authorization: Basic "))
+        self.assertNotIn("segredo-123", valor)  # vai em base64
 
-        with mock.patch.object(server_setup.urllib.request, "urlopen",
-                               fake_urlopen):
-            ok, detalhe = server_setup.health_check(8001)
-
-        self.assertTrue(ok)
-        self.assertEqual(server_setup.ENDPOINT_STATUS,
-                         "/maktrak/movingmak/deploy_health")
-        self.assertEqual(urls[0],
-                         "http://127.0.0.1:8001" + server_setup.ENDPOINT_STATUS)
-        self.assertIn("deploy_count 0", detalhe)
-        self.assertIn("online", detalhe)
-
-    def test_health_check_espera_o_codigo_online(self):
-        """`busy`/`restarting` (2/3) nao contam como pronto — ver Proposta_API.md."""
-        def fake_urlopen(url, timeout=0):
-            return _FakeResp(b'{"status": 2, "deploy_count": 0, '
-                             b'"deploy_epoch": 1780000000, '
-                             b'"deploy_timestamp": "2026-05-28T20:26:40", '
-                             b'"message": "busy: deploy em processamento"}')
-
-        with mock.patch.object(server_setup.urllib.request, "urlopen",
-                               fake_urlopen), \
-                mock.patch.object(server_setup.time, "sleep"):
-            ok, detalhe = server_setup.health_check(8001, tentativas=2)
-
-        self.assertFalse(ok)
-        self.assertIn("busy", detalhe)
-        self.assertEqual(server_setup.STATUS_ONLINE, 0)
-
-    def test_gravar_se_mudou_e_idempotente(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            destino = Path(tmpdir) / "deploy.py"
-            self.assertTrue(server_setup._gravar_se_mudou(destino, b"abc"))
-            self.assertFalse(server_setup._gravar_se_mudou(destino, b"abc"))
-            self.assertTrue(server_setup._gravar_se_mudou(destino, b"abcd"))
-            self.assertEqual(destino.read_bytes(), b"abcd")
-
-    def test_sem_token_nao_instala_recebedor(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ok, mudou = server_setup.instalar_recebedor(
-                Path(tmpdir), "main", "")
-            self.assertFalse(ok)
-            self.assertFalse(mudou)
-            self.assertFalse((Path(tmpdir) / "server_api").exists())
-
-    def test_sem_tty_cai_do_ambiente_invalido_para_o_store(self):
-        """Sem TTY, 401 numa origem nao aborta: valida e tenta a proxima."""
-        codigos = iter([401, 200])
-
-        def fake_urlopen(req, timeout=0):
-            if next(codigos) == 200:
-                return _FakeResp(b"{}")
-            raise server_setup.urllib.error.HTTPError(
-                req.full_url, 401, "Unauthorized", {}, None)
-
+    def test_token_do_ambiente(self):
         with mock.patch.dict(server_setup.os.environ,
-                             {"GITHUB_TOKEN": "velho"}, clear=True), \
-                mock.patch.object(server_setup, "_token_do_store",
-                                  return_value="bom"), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  fake_urlopen), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=False):
-            self.assertEqual(server_setup.resolver_token(), "bom")
+                             {"GITHUB_TOKEN": " abc "}, clear=False):
+            self.assertEqual(server_setup.token_do_ambiente_ou_store(), "abc")
 
-    def test_interativo_pergunta_antes_do_store(self):
-        """Interativo: o usuario e consultado antes de usar o store."""
-        consultas_store = []
+    def test_token_do_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / ".git-credentials"
+            store.write_text(
+                "https://usuario:tok%40en@github.com\n", encoding="utf-8")
+            with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
+                    mock.patch.object(Path, "home", return_value=Path(tmp)):
+                self.assertEqual(
+                    server_setup.token_do_ambiente_ou_store(), "tok@en")
 
-        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=True), \
-                mock.patch("builtins.input",
-                           lambda prompt="": "digitado"), \
-                mock.patch.object(server_setup.getpass, "getpass",
-                                  side_effect=AssertionError("getpass")), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  lambda req, timeout=0: _FakeResp(b"{}")), \
-                mock.patch.object(
-                    server_setup, "_token_do_store",
-                    side_effect=lambda: consultas_store.append(1) or "antigo"):
-            self.assertEqual(server_setup.resolver_token(), "digitado")
-        self.assertEqual(consultas_store, [])
+    def test_obter_codigo_clona_raso(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "projeto"
+            with mock.patch.object(server_setup, "_run",
+                                   return_value=0) as run:
+                ok = server_setup.obter_codigo(destino, "minha-branch", "t")
+            self.assertTrue(ok)
+            argv = run.call_args[0][0]
+            self.assertEqual(argv[:4], ["git", "clone", "--depth", "1"])
+            self.assertIn("--branch", argv)
+            self.assertEqual(argv[argv.index("--branch") + 1], "minha-branch")
 
-    def test_interativo_com_enter_cai_para_o_store(self):
-        """Enter no prompt cancela; o store (validado) ainda e tentado."""
-        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=True), \
-                mock.patch("builtins.input", lambda prompt="": ""), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  lambda req, timeout=0: _FakeResp(b"{}")), \
-                mock.patch.object(server_setup, "_token_do_store",
-                                  return_value="salvo"):
-            self.assertEqual(server_setup.resolver_token(), "salvo")
+    def test_obter_codigo_atualiza_clone_existente(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "projeto"
+            (destino / ".git").mkdir(parents=True)
+            with mock.patch.object(server_setup, "_run",
+                                   return_value=0) as run:
+                ok = server_setup.obter_codigo(destino, "main", "t")
+            self.assertTrue(ok)
+            chamadas = [c[0][0] for c in run.call_args_list]
+            self.assertIn("fetch", chamadas[0])
+            self.assertIn("reset", chamadas[-1])
 
-    def test_token_digitado_invalido_repergunta(self):
-        """Token colado errado nao derruba a instalacao: o prompt repete."""
-        respostas = iter(["errado", "certo"])
-        codigos = iter([401, 200])
-
-        def fake_urlopen(req, timeout=0):
-            if next(codigos) == 200:
-                return _FakeResp(b"{}")
-            raise server_setup.urllib.error.HTTPError(
-                req.full_url, 401, "Unauthorized", {}, None)
-
-        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=True), \
-                mock.patch("builtins.input",
-                           lambda prompt="": next(respostas)), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  fake_urlopen):
-            self.assertEqual(server_setup.resolver_token(), "certo")
-
-    def test_prompt_cancelado_no_eof_nao_quebra(self):
-        """Ctrl+D (EOF) no prompt cancela sem traceback."""
-        with mock.patch.dict(server_setup.os.environ, {}, clear=True), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=True), \
-                mock.patch("builtins.input", side_effect=EOFError), \
-                mock.patch.object(server_setup, "_token_do_store",
-                                  return_value=""):
-            self.assertEqual(server_setup.resolver_token(), "")
-
-    def test_token_invalido_em_todas_as_origens_retorna_vazio(self):
-        """Sem tty e com 401 em todas as origens, nao ha token utilizavel."""
-        def fake_urlopen(req, timeout=0):
-            raise server_setup.urllib.error.HTTPError(
-                req.full_url, 401, "Unauthorized", {}, None)
-
-        with mock.patch.dict(server_setup.os.environ,
-                             {"GITHUB_TOKEN": "velho"}, clear=True), \
-                mock.patch.object(server_setup, "_token_do_store",
-                                  return_value="tambem-velho"), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  fake_urlopen), \
-                mock.patch.object(server_setup.sys.stdin, "isatty",
-                                  return_value=False):
-            self.assertEqual(server_setup.resolver_token(), "")
-
-    def test_falha_de_rede_nao_descarta_o_token(self):
-        """Sem rede nao da para julgar o token; ele e mantido (nao regride)."""
-        def fake_urlopen(req, timeout=0):
-            raise OSError("sem rede")
-
-        with mock.patch.dict(server_setup.os.environ,
-                             {"GITHUB_TOKEN": "meu-token"}, clear=True), \
-                mock.patch.object(server_setup.urllib.request, "urlopen",
-                                  fake_urlopen):
-            self.assertEqual(server_setup.resolver_token(), "meu-token")
-
-    def test_requisitos_fora_do_linux(self):
-        original = server_setup.OS_TYPE
-        try:
-            server_setup.OS_TYPE = "windows"
-            ok, motivo = server_setup.checar_requisitos()
-            self.assertFalse(ok)
-            self.assertIn("windows", motivo)
-        finally:
-            server_setup.OS_TYPE = original
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_repassa_parametros_ao_instalador(self):
+        """O bootstrap nao instala nada: quem faz e o install_server.py."""
+        fonte = (ROOT / "server_setup.py").read_text(encoding="utf-8")
+        self.assertIn('"install_server.py"', fonte)
+        self.assertNotIn("systemctl", fonte)
+        self.assertNotIn("schtasks", fonte)
