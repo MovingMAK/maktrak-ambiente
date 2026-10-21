@@ -6,8 +6,8 @@ MakTrak. Um único instalador é baixado e executado:
 - **`dev`** — o `maktrak_setup.py` atualiza o sistema, clona os repositórios
   dos componentes e configura cada um;
 - **`prod`** — o `maktrak_setup.py` delega para o `server_setup.py` (baixado do
-  mesmo repositório), que instala o runtime do servidor e sobe o recebedor de
-  deploy. Sem clonar repositórios e sem buildar.
+  mesmo repositório), que clona o repositório do servidor e executa o
+  `install_server.py` dele — sem ferramentas de dev e sem buildar.
 
 ## Como executar
 
@@ -60,36 +60,31 @@ rodam: o instalador baixa e executa o `server_setup.py` (ver “Modos”).
 | `dev` | desenvolvimento (ferramentas de build/edição no host) | `ambiente`, `mecanica`, `eletronica`, `firmware`, `servidor` |
 | `prod` | servidor em operação (sem ferramentas de dev) | `servidor-prod` |
 
-No modo `prod` **nada é clonado nem buildado**. O `maktrak_setup.py` baixa o
-`server_setup.py` (mesmo repositório, mesma branch escolhida) e o executa. Esse
-script:
+No modo `prod` o orquestrador **não instala ferramentas de dev nem builda**.
+Ele baixa o `server_setup.py` (mesmo repositório, mesma branch escolhida) e o
+executa. Esse script é um bootstrap fino:
 
-1. instala o runtime Python (venv em `~/.venvs/maktrak-server` com
-   FastAPI/uvicorn/pydantic/starlette);
-2. baixa o recebedor de deploy (`deploy.py`, `errors.py` e
-   `deploy_receiver.py`, do repositório `maktrak-server`) para a pasta do
-   projeto;
-3. cria e sobe o serviço systemd `maktrak-receiver.service` (porta 8001) — a unit
-   sobe com `--max-kb` (default **100 KB**, o mesmo do recebedor): o pacote (só o
-   conteúdo da pasta `exec/`) tem ~20 KB;
-4. confere `GET /maktrak/movingmak/deploy_health` e imprime o relatório.
+1. confere requisitos (`git`, sistema suportado);
+2. clona o repositório do servidor (raso, na branch pedida) em
+   `~/maktrak-server` — ou atualiza o clone existente;
+3. executa o `install_server.py` do clone, que cria o venv
+   (`~/.venvs/maktrak-server`), grava a unit a partir de
+   `deploy/server/systemd/maktrak-server.service`, habilita/inicia o serviço e
+   confere `GET /moving`.
 
-O código da API chega depois, pelo `POST /maktrak/deploy` — por isso a pasta do
-projeto (`~/maktrak-server` por default) fica fora do clone de desenvolvimento
-(`~/repos/movingmak/maktrak/`). O deploy substitui apenas a pasta
-`server_api/exec/`; os bancos em `server_api/database/` ficam intactos.
+O serviço roda `main.py --port 8000` (`--extern` por padrão) e se chama
+`maktrak-server` (systemd no Linux; tarefa agendada no Windows). O deploy usa
+`POST /maktrak/deploy` e substitui apenas `server_api/exec/`; os bancos em
+`server_api/database/` ficam intactos.
 
-Requisitos do modo `prod`: Linux com systemd e um token GitHub com leitura no
-repositório `maktrak-server` (privado). A origem do token, em ordem: o
-`GITHUB_TOKEN` do ambiente (tem precedência); o prompt — em modo interativo o
-usuário é consultado antes de o script confiar no `~/.git-credentials`, podendo
-repetir a digitação se o token colado for inválido (a digitação é visível na
-tela; cole com Ctrl+Shift+V); por fim o próprio store.
-Todo token é validado contra o GitHub antes de usar: credencial inválida ou
-expirada (401) é descartada com aviso e o setup tenta a próxima origem. Sem
-token utilizável o setup avisa e não instala nada. O que ainda falta
-em produção — unit/nginx para a API em si (porta 8000) e health checks
-contínuos — está em `IMPLEMENTATION_QUESTIONS.md`.
+A pasta do projeto fica fora do clone de desenvolvimento
+(`~/repos/movingmak/maktrak/`) de propósito.
+
+Requisitos do modo `prod`: `git` e um token GitHub com leitura no repositório
+`maktrak-server` (privado). O token vem de `GITHUB_TOKEN`/`GH_TOKEN` ou de
+`~/.git-credentials`; sem ele, o clone falha e o script pede o token (uma vez).
+O token é injetado no git por variável de ambiente (`GIT_CONFIG_*`), não pela
+linha de comando. No Linux o serviço usa systemd; no Windows, `schtasks`.
 
 ## Arquitetura: classe base + scripts derivados
 
@@ -127,6 +122,6 @@ dependência de caminho.
   `MovingMAK/maktrak-ambiente` (branch `main`).
 - Durante a execução, o script pode pedir usuário/token do GitHub para
   acessar repositórios privados da organização.
-- No modo `prod` são baixados dois files do repositório público
-  (`maktrak_setup.py` e `server_setup.py`); os files do recebedor vêm do
-  `maktrak-server` (privado) via API de conteúdo do GitHub, usando o token.
+- No modo `prod` são baixados dois arquivos do repositório público
+  (`maktrak_setup.py` e `server_setup.py`); o código do servidor vem do clone de
+  `maktrak-server` (privado), usando o token.

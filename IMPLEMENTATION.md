@@ -16,25 +16,20 @@ fica no git. O comportamento do instalador é descrito no README.
   ambiente (`apt upgrade` / `winget upgrade --all`).
 - Seleção de **modo** (`dev` ou `prod`) e dos componentes do modo. Catálogos:
   `DEV_MODULES`/`DEV_REPOSITORIES` e `PROD_MODULES`/`PROD_REPOSITORIES`. No
-  `prod` o componente é `servidor-prod` e o catálogo de repositórios é vazio
-  (produção não clona); `ia` (Ollama/Open WebUI) segue fora da seleção.
-- Modo `prod` **delegado**: sem ferramentas de dev, sem clone e sem build. O
-  orquestrador baixa o `server_setup.py` (repo público, mesma branch escolhida,
-  com fallback para `main`) e o executa como processo separado. O
-  `server_setup.py` instala o runtime Python (venv), baixa o recebedor de deploy
-  (`deploy.py`, `errors.py`, `deploy_receiver.py`) e cria a unit systemd
-  `maktrak-receiver.service`, que sobe com `--max-kb` (limite do pacote de
-  deploy; default 100 KB, o mesmo do recebedor — o pacote tem ~20 KB); o
-  código da API chega pelo `POST /maktrak/deploy`. Hoje só Linux com systemd.
-- O token GitHub do modo `prod` é validado contra a API antes de baixar o
-  recebedor. Prioridade: `GITHUB_TOKEN` (validado) → prompt → store; em modo
-  interativo o usuário é consultado antes de o script confiar no
-  `~/.git-credentials`, com até 3 tentativas para o token digitado. A digitação
-  usa `input()` (eco visível, como no `maktrak_setup`) em vez de `getpass` —
-  que não recebe digitação nem cola em alguns terminais/consoles de VM. Para
-  colar, Ctrl+Shift+V (Ctrl+V não cola no terminal). Credencial
-  inválida/expirada (401) ou sem leitura no `maktrak-server` é descartada com
-  aviso; sem TTY resta o store validado.
+  `prod` o componente é `servidor-prod` e o catálogo de repositórios de dev é
+  vazio; `ia` (Ollama/Open WebUI) segue fora da seleção.
+- Modo `prod` **delegado**: sem ferramentas de dev e sem build. O orquestrador
+  baixa o `server_setup.py` (repo público, mesma branch escolhida, com fallback
+  para `main`) e o executa como processo separado. O `server_setup.py` é um
+  bootstrap fino: clona o repositório do servidor (raso, na branch pedida) em
+  `~/maktrak-server` e executa o `install_server.py` do clone, que cria o venv,
+  grava a unit `maktrak-server.service` e valida `GET /moving`. O serviço roda
+  `main.py --port 8000` (`--extern` por padrão) no Linux (systemd) e no Windows
+  (`schtasks`). O código da API chega pelo `POST /maktrak/deploy`.
+- No modo `prod` o token GitHub vem de `GITHUB_TOKEN`/`GH_TOKEN` ou de
+  `~/.git-credentials`; se o clone falhar, o script pede o token uma vez. Ele é
+  injetado no git por variável de ambiente (`GIT_CONFIG_*`), não pela linha de
+  comando.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases
@@ -61,10 +56,9 @@ Pendências herdadas da divisão base/derivada e do estado atual:
 - [ ] Ampliar os testes automatizados além de credenciais git: seleção de
       componentes, carga de derivadas, propagação de falhas até o relatório
       e instalação Android.
-- [ ] Fechar os serviços de produção que faltam (unit/nginx para a API em si, na
-      porta 8000, e health checks contínuos) e as questões de IA — ver
+- [ ] Fechar os serviços de produção que faltam (reverse proxy nginx para a API
+      na porta 8000 e health checks contínuos) e as questões de IA — ver
       `IMPLEMENTATION_QUESTIONS.md`.
-- [ ] Suportar o modo `prod` fora do Linux (hoje exige systemd).
 - [ ] Definir uma URL oficial imutável (release/tag) para instalações de
       produção.
 

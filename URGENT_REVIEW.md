@@ -5,10 +5,10 @@ Data da revisao: 2026-08-06
 Este documento consolida os pontos encontrados na revisao conjunta do
 orquestrador, das derivadas e da documentacao.
 
-> Atualizacao (2026-09-25): os bloqueadores **1** e **2** foram resolvidos. O
-> modo `prod` deixou de clonar repositorios e de executar a derivada de dev:
-> ele delega para o `server_setup.py`, que instala o runtime e sobe o recebedor
-> de deploy como servico systemd. Ver `README.md` e `IMPLEMENTATION.md`.
+> Atualizacao: os bloqueadores **1** e **2** foram resolvidos. O modo `prod`
+> deixou de executar a derivada de dev: delega para o `server_setup.py`, que
+> clona o repositorio do servidor e roda o `install_server.py` (venv + servico
+> + health check). Ver `README.md` e `IMPLEMENTATION.md`.
 
 ## Bloqueadores
 
@@ -45,11 +45,11 @@ configurar o nginx (sem `server` block, sem reverse proxy). Ao contrario de
 - Direcao: criar `ProductionServerSetup` dedicado a runtime, servicos,
   configuracao e health checks (unit systemd para o uvicorn + config real de
   nginx). Manter builds no perfil de desenvolvimento ou no CI.
-- Resolvido em parte (2026-09-25): o modo `prod` nao carrega mais a derivada de
-  dev — delega para o `server_setup.py`, que entrega unit systemd para o
-  recebedor de deploy e confere `GET /maktrak/movingmak/deploy_health`. Continua
-  pendente o que ainda nao existe no projeto: unit/nginx para a API em si (porta
-  8000) e health checks continuos.
+- Resolvido em parte: o modo `prod` nao carrega mais a derivada de dev — delega
+  para o `server_setup.py`, que clona o servidor e roda o `install_server.py`
+  (servico `maktrak-server`, porta 8000, com `GET /moving` na instalacao).
+  Continua pendente o que ainda nao existe no projeto: reverse proxy nginx e
+  health checks continuos.
 
 ### 3. Requisitos declarados nao correspondem ao que e instalado
 
@@ -180,7 +180,7 @@ Manter `maktrak_setup.py` pequeno em responsabilidades de infraestrutura:
 
 - interface com usuario, privilegios e atualizacao do sistema;
 - clone, autenticacao Git e carregamento versionado das derivadas;
-- catalogo de pacotes e primitives reutilizaveis para subprocessos, files,
+- catalogo de pacotes e primitivas reutilizaveis para subprocessos, arquivos,
   VS Code, Flutter, Android, Python e PlatformIO;
 - execucao de fases e consolidacao de resultados.
 
@@ -257,7 +257,7 @@ A suite atual cobre apenas escrita de credenciais e a presenca de Git no host.
 Adicionar testes com mocks para:
 
 - selecao de perfis e repositorios em `dev` e `prod`;
-- compatibilidade de version bootstrap/derivada;
+- compatibilidade de versao bootstrap/derivada;
 - propagacao de falhas de subprocessos e relatorio final;
 - instalacao Android, licencas antes de downloads e criacao de AVD;
 - carregamento correto de `ServerSetup`, `ProductionServerSetup` e `IaSetup`;

@@ -58,12 +58,12 @@ documento.
   artefato público: commit, PR, issue, código, documentação ou resposta. Use exemplo
   genérico.
 - Nunca versione segredo (token, chave, senha, credencial, `.env`) nem o exponha em
-  log, exemplo ou message.
+  log, exemplo ou mensagem.
 
 ## Limites de atuação
 
 - **Git:** use apenas o comando pedido no prompt atual e os passos mínimos que o
-  completam — pedido de commit inclui o `add` dos files citados. Nunca, por
+  completam — pedido de commit inclui o `add` dos arquivos citados. Nunca, por
   iniciativa própria: `push`, `branch`, `tag`, `merge`, `rebase`, `amend`, `reset`,
   `stash` ou qualquer variante com `--force`.
 - **Escopo:** faça só o que foi pedido. Problema colateral que encontrar: relate, não
