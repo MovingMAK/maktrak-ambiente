@@ -14,7 +14,7 @@ documento.
 ## Idioma
 
 - Responda em português (pt-BR).
-- Código, identificadores, files e endpoints em inglês, conforme as convenções de
+- Código, identificadores, arquivos e endpoints em inglês, conforme as convenções de
   nomenclatura do projeto:
   <https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/NAMING_CONVENTIONS.md>
 
