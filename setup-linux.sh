@@ -5,11 +5,14 @@
 #
 # Uso:
 #   bash setup-linux.sh
+#   bash setup-linux.sh <ref>          # branch/tag do instalador
+#   MAKTRAK_REF=<ref> bash setup-linux.sh
 #   # ou (baixe e execute, para o instalador ler suas respostas):
 #   wget -q "<url deste arquivo>" -O /tmp/setup-linux.sh && bash /tmp/setup-linux.sh
 set -euo pipefail
 
-URL="https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/maktrak_setup.py"
+REF="${1:-${MAKTRAK_REF:-main}}"
+URL="https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/${REF}/maktrak_setup.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -28,6 +31,8 @@ fi
 
 # 2. Baixa o instalador (wget) e executa
 # (wget ja vem por padrao no Debian/Ubuntu; curl costuma faltar.)
+echo "Instalador: $URL"
+export MAKTRAK_REF="$REF"
 wget -q "$URL" -O "$TMP/maktrak_setup.py"
 
 # Executa. Se o stdin nao for um terminal (ex.: veio por pipe), le as

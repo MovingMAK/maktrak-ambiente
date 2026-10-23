@@ -91,6 +91,15 @@ class ProducaoNoOrquestradorTests(unittest.TestCase):
         self.assertTrue(argv[1].endswith("server_setup.py"))
         self.assertEqual(argv[2:], ["--branch", "minha-branch"])
 
+    def test_branch_padrao_vem_do_ambiente(self):
+        """`MAKTRAK_REF` (exportado pelo bootstrap) preseleciona a branch."""
+        with mock.patch.object(maktrak_setup, "input", return_value=""), \
+                mock.patch.dict(maktrak_setup.os.environ,
+                                {"MAKTRAK_REF": "minha-ref"}):
+            ref = maktrak_setup.os.environ.get("MAKTRAK_REF") or "main"
+            escolhida = maktrak_setup._ui_select_branch("Branch? ", ref)
+        self.assertEqual(escolhida, "minha-ref")
+
     def test_delegate_nao_repete_main_quando_ja_e_main(self):
         urls = []
 

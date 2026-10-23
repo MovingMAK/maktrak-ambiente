@@ -1321,10 +1321,11 @@ def _ui_confirm(mode, components, branch="main"):
     return confirm in {"y", "yes", ""}
 
 
-def _ui_select_branch(pergunta="Branch dos repositorios? (Enter = main): "):
-    """Solicita ao usuario uma branch especifica (default: main)."""
+def _ui_select_branch(pergunta="Branch dos repositorios? (Enter = main): ",
+                      padrao="main"):
+    """Solicita ao usuario uma branch especifica (Enter = `padrao`)."""
     branch = input(pergunta).strip()
-    return branch if branch else "main"
+    return branch if branch else padrao
 
 
 def _ui_print_report(all_results):
@@ -1789,9 +1790,10 @@ def main():
     # orquestrador e delega para o `server_setup.py` (baixado do repo
     # publico), que clona o servidor e roda o instalador do servico.
     if mode == "prod":
+        ref_padrao = os.environ.get("MAKTRAK_REF") or "main"
         branch = _ui_select_branch(
-            "Branch do repo de servidores (arquivos do recebedor)? "
-            "(Enter = main): ")
+            f"Branch do repo de servidores? (Enter = {ref_padrao}): ",
+            ref_padrao)
         print("\n--- Modo prod: delegando para o server_setup.py ---")
         sys.exit(_delegate_prod_setup(branch))
 

@@ -48,6 +48,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 4. Baixa e executa o instalador
-Write-Host "Baixando maktrak_setup.py..."
+$env:MAKTRAK_REF = $Ref
+Write-Host "Baixando maktrak_setup.py ($Ref)..."
 Invoke-WebRequest -Uri $Url -OutFile $Target
 & $pythonCmd $Target
