@@ -124,6 +124,10 @@ def main():
     args = parser.parse_args()
 
     sistema = platform.system()
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        print("❌ Não rode como root (nem com sudo): use o seu usuário; "
+              "o instalador chama sudo quando precisa.")
+        return 1
     if sistema not in ("Linux", "Windows"):
         print(f"❌ Sistema não suportado: {sistema} (use Linux ou Windows).")
         return 1
