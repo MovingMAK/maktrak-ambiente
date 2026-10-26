@@ -66,6 +66,7 @@ def _ambiente_git(token):
     """Ambiente do git com o token fora da linha de comando (via config)."""
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
+    env["LC_ALL"] = "C"   # mensagens do git em inglês (ver classificar_falha)
     if token:
         credencial = base64.b64encode(
             f"x-access-token:{token}".encode("utf-8")
@@ -78,23 +79,96 @@ def _ambiente_git(token):
     return env
 
 
+def _executar(cmd, env=None):
+    """Executa capturando a saída. Devolve `(ok, texto)`."""
+    try:
+        resultado = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    except OSError as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+    return resultado.returncode == 0, (resultado.stderr or resultado.stdout or "")
+
+
+# Trechos das mensagens do git (em inglês, garantido por LC_ALL=C) que
+# identificam a causa — coletados de execuções reais.
+_FALHA_CREDENCIAL = (
+    "authentication failed",
+    "invalid username or token",
+    "unable to get password",
+    "could not read username",
+)
+_FALHA_REDE = (
+    "could not resolve host",
+    "failed to connect",
+    "connection timed out",
+    "network is unreachable",
+    "could not read from remote repository",
+)
+_FALHA_BRANCH = (
+    "not found in upstream origin",
+    "couldn't find remote ref",
+)
+
+
+def classificar_falha(saida):
+    """Causa da falha do git: `credencial`, `rede`, `branch` ou `outro`."""
+    texto = (saida or "").lower()
+    if any(marca in texto for marca in _FALHA_CREDENCIAL):
+        return "credencial"
+    if any(marca in texto for marca in _FALHA_REDE):
+        return "rede"
+    if any(marca in texto for marca in _FALHA_BRANCH):
+        return "branch"
+    return "outro"
+
+
+def mensagem_falha(motivo, branch, destino):
+    """Mensagem para o usuário, conforme a causa."""
+    if motivo == "credencial":
+        return ("O GitHub recusou a credencial. Defina GITHUB_TOKEN com "
+                "leitura em maktrak-server e rode de novo.")
+    if motivo == "branch":
+        return f"A branch '{branch}' não existe no repositório."
+    if motivo == "rede":
+        return "Sem acesso ao GitHub (rede, DNS ou proxy)."
+    if motivo == "destino":
+        return (f"{destino} já existe e não é um clone do repositório. "
+                "Remova a pasta ou use --target com outro caminho.")
+    return "Falha ao obter o código (veja a saída do git acima)."
+
+
 def obter_codigo(destino, branch, token):
-    """Clona (raso) ou atualiza o repositório do servidor. Devolve True/False."""
+    """Clona (raso) ou atualiza o repositório. Devolve `(ok, motivo)`.
+
+    `motivo` é o que `classificar_falha` devolve, ou `destino` quando a pasta
+    já existe sem ser um clone (o `git clone` recusaria com erro obscuro).
+    """
     git_dir = destino / ".git"
     if git_dir.is_dir():
         print(f"  Atualizando clone em {destino} (branch {branch})...")
-        rc = _run(["git", "-C", str(destino), "fetch", "--depth", "1",
-                   "origin", branch], env=_ambiente_git(token))
-        if rc != 0:
-            return False
-        return _run(["git", "-C", str(destino), "reset", "--hard",
-                     "FETCH_HEAD"]) == 0
+        ok, saida = _executar(["git", "-C", str(destino), "fetch", "--depth", "1",
+                               "origin", branch], env=_ambiente_git(token))
+        if not ok:
+            print(f"  {saida.strip()}")
+            return False, classificar_falha(saida)
+        ok, saida = _executar(["git", "-C", str(destino), "reset", "--hard",
+                               "FETCH_HEAD"])
+        if not ok:
+            print(f"  {saida.strip()}")
+            return False, "outro"
+        return True, ""
+
+    if destino.is_dir() and any(destino.iterdir()):
+        return False, "destino"
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     print(f"  Clonando {REPO_SERVIDORES} (branch {branch})...")
-    return _run(["git", "clone", "--depth", "1", "--branch", branch,
-                 REPO_SERVIDORES, str(destino)],
-                env=_ambiente_git(token)) == 0
+    ok, saida = _executar(["git", "clone", "--depth", "1", "--branch", branch,
+                           REPO_SERVIDORES, str(destino)],
+                          env=_ambiente_git(token))
+    if not ok:
+        print(f"  {saida.strip()}")
+        return False, classificar_falha(saida)
+    return True, ""
 
 
 def _perguntar(texto, padrao):
@@ -157,15 +231,18 @@ def main():
         return 0
 
     token = token_do_ambiente_ou_store()
-    if not obter_codigo(destino, args.branch, token):
-        if token or not interativo:
-            print("❌ Falha ao obter o código. Verifique o token/branch.")
-            return 1
+    ok, motivo = obter_codigo(destino, args.branch, token)
+
+    # Só a recusa de credencial pede token; erro de rede, branch ou pasta não.
+    if not ok and motivo == "credencial" and not token and interativo:
         print("  O repositório é privado; informe um token do GitHub.")
         token = input("  GitHub token (Enter = cancelar): ").strip()
-        if not token or not obter_codigo(destino, args.branch, token):
-            print("❌ Falha ao obter o código.")
-            return 1
+        if token:
+            ok, motivo = obter_codigo(destino, args.branch, token)
+
+    if not ok:
+        print(f"❌ {mensagem_falha(motivo, args.branch, destino)}")
+        return 1
 
     instalador = destino / "install_server.py"
     if not instalador.is_file():

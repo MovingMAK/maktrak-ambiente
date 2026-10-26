@@ -214,11 +214,13 @@ class ServerSetupTests(unittest.TestCase):
     def test_obter_codigo_clona_raso(self):
         with tempfile.TemporaryDirectory() as tmp:
             destino = Path(tmp) / "projeto"
-            with mock.patch.object(server_setup, "_run",
-                                   return_value=0) as run:
-                ok = server_setup.obter_codigo(destino, "minha-branch", "t")
+            with mock.patch.object(server_setup, "_executar",
+                                   return_value=(True, "")) as executar:
+                ok, motivo = server_setup.obter_codigo(
+                    destino, "minha-branch", "t")
             self.assertTrue(ok)
-            argv = run.call_args[0][0]
+            self.assertEqual(motivo, "")
+            argv = executar.call_args[0][0]
             self.assertEqual(argv[:4], ["git", "clone", "--depth", "1"])
             self.assertIn("--branch", argv)
             self.assertEqual(argv[argv.index("--branch") + 1], "minha-branch")
@@ -227,13 +229,73 @@ class ServerSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             destino = Path(tmp) / "projeto"
             (destino / ".git").mkdir(parents=True)
-            with mock.patch.object(server_setup, "_run",
-                                   return_value=0) as run:
-                ok = server_setup.obter_codigo(destino, "main", "t")
+            with mock.patch.object(server_setup, "_executar",
+                                   return_value=(True, "")) as executar:
+                ok, motivo = server_setup.obter_codigo(destino, "main", "t")
             self.assertTrue(ok)
-            chamadas = [c[0][0] for c in run.call_args_list]
+            self.assertEqual(motivo, "")
+            chamadas = [c[0][0] for c in executar.call_args_list]
             self.assertIn("fetch", chamadas[0])
             self.assertIn("reset", chamadas[-1])
+
+    def test_classificar_falha_credencial(self):
+        for saida in (
+            "fatal: Authentication failed for 'https://github.com/x/y.git/'",
+            "remote: Invalid username or token.\nfatal: Authentication failed",
+            "fatal: unable to get password from user",
+            "fatal: could not read Username for 'https://github.com': "
+            "terminal prompts disabled",
+        ):
+            self.assertEqual(server_setup.classificar_falha(saida), "credencial")
+
+    def test_classificar_falha_rede(self):
+        for saida in (
+            "fatal: unable to access 'https://x/': Could not resolve host: x",
+            "fatal: Failed to connect to github.com port 443: Connection timed out",
+            "fatal: Could not read from remote repository.",
+        ):
+            self.assertEqual(server_setup.classificar_falha(saida), "rede")
+
+    def test_classificar_falha_branch(self):
+        for saida in (
+            "fatal: Remote branch nao-existe not found in upstream origin",
+            "fatal: couldn't find remote ref refs/heads/nao-existe",
+        ):
+            self.assertEqual(server_setup.classificar_falha(saida), "branch")
+
+    def test_classificar_falha_desconhecida(self):
+        self.assertEqual(server_setup.classificar_falha("algo inesperado"),
+                         "outro")
+        self.assertEqual(server_setup.classificar_falha(""), "outro")
+
+    def test_mensagem_falha_cita_a_causa(self):
+        self.assertIn("GITHUB_TOKEN",
+                      server_setup.mensagem_falha("credencial", "main", "/p"))
+        self.assertIn("'minha-branch'",
+                      server_setup.mensagem_falha("branch", "minha-branch", "/p"))
+        self.assertIn("rede",
+                      server_setup.mensagem_falha("rede", "main", "/p"))
+        self.assertIn("/p",
+                      server_setup.mensagem_falha("destino", "main", "/p"))
+
+    def test_pasta_existente_sem_git_nao_clona(self):
+        """Pasta ocupada não é clone: erro claro em vez de falha do git."""
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "projeto"
+            destino.mkdir()
+            (destino / "arquivo.txt").write_text("x")
+            with mock.patch.object(server_setup, "_executar") as executar:
+                ok, motivo = server_setup.obter_codigo(destino, "main", "t")
+            self.assertFalse(ok)
+            self.assertEqual(motivo, "destino")
+            executar.assert_not_called()
+
+    def test_nao_pede_token_em_erro_de_branch(self):
+        """Só credencial abre prompt; branch/rede não."""
+        fonte = (ROOT / "server_setup.py").read_text(encoding="utf-8")
+        inicio = fonte.index("    token = token_do_ambiente_ou_store()")
+        trecho = fonte[inicio:inicio + 700]
+        self.assertIn('motivo == "credencial" and not token', trecho)
 
     def test_repassa_parametros_ao_instalador(self):
         """O bootstrap nao instala nada: quem faz e o install_server.py."""
