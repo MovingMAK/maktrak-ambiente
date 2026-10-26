@@ -6,14 +6,30 @@ fica no git. O comportamento do instalador é descrito no README.
 
 ## Estado atual
 
-- Único arquivo baixado: `maktrak_setup.py` (orquestrador + classe base
-  `SetupBase` + catálogo `_PKG`), sem dependências externas.
+- Arquivo baixado pelo bootstrap: `maktrak_setup.py` (orquestrador + classe base
+  `SetupBase` + catálogo `_PKG`), sem dependências externas. No modo `prod` o
+  próprio orquestrador baixa um segundo arquivo, o `server_setup.py`
+  (autossuficiente: não importa `maktrak_setup` e não depende de clone).
 - Instalação por SO: `apt`/`snap` no Linux e `winget` no Windows. Não há
   `choco` — o `winget` cobre os pacotes necessários.
 - Privilégios elevados (sudo/admin), keepalive de sudo e atualização do
   ambiente (`apt upgrade` / `winget upgrade --all`).
-- Seleção de componentes no modo `dev`. O modo `prod` (servidor-prod/IA)
-  está pausado, sem módulos definidos (`PROD_MODULES` vazio).
+- Seleção de **modo** (`dev` ou `prod`) e dos componentes do modo. Catálogos:
+  `DEV_MODULES`/`DEV_REPOSITORIES` e `PROD_MODULES`/`PROD_REPOSITORIES`. No
+  `prod` o componente é `servidor-prod` e o catálogo de repositórios de dev é
+  vazio; `ia` (Ollama/Open WebUI) segue fora da seleção.
+- Modo `prod` **delegado**: sem ferramentas de dev e sem build. O orquestrador
+  baixa o `server_setup.py` (repo público, mesma branch escolhida, com fallback
+  para `main`) e o executa como processo separado. O `server_setup.py` é um
+  bootstrap fino: clona o repositório do servidor (raso, na branch pedida) em
+  `~/maktrak-server` e executa o `install_server.py` do clone, que cria o venv,
+  grava a unit `maktrak-server.service` e valida `GET /moving`. O serviço roda
+  `main.py --port 8000` (`--extern` por padrão) no Linux (systemd) e no Windows
+  (`schtasks`). O código da API chega pelo `POST /maktrak/deploy`.
+- No modo `prod` o token GitHub vem de `GITHUB_TOKEN`/`GH_TOKEN` ou de
+  `~/.git-credentials`; se o clone falhar, o script pede o token uma vez. Ele é
+  injetado no git por variável de ambiente (`GIT_CONFIG_*`), não pela linha de
+  comando.
 - Credenciais GitHub (store, variável de ambiente ou prompt), clone e
   atualização dos repositórios e associação ao Sublime Merge.
 - Execução das derivadas (`repo_setup.py` de cada componente) nas fases
@@ -40,8 +56,9 @@ Pendências herdadas da divisão base/derivada e do estado atual:
 - [ ] Ampliar os testes automatizados além de credenciais git: seleção de
       componentes, carga de derivadas, propagação de falhas até o relatório
       e instalação Android.
-- [ ] Decidir as questões em aberto de produção/IA (ver
-      `IMPLEMENTATION_QUESTIONS.md`) antes de retomar o modo `prod`.
+- [ ] Fechar os serviços de produção que faltam (reverse proxy nginx para a API
+      na porta 8000 e health checks contínuos) e as questões de IA — ver
+      `IMPLEMENTATION_QUESTIONS.md`.
 - [ ] Definir uma URL oficial imutável (release/tag) para instalações de
       produção.
 
