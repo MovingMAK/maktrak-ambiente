@@ -37,6 +37,47 @@ class _FakeResp:
         return False
 
 
+class GitAntesDoModoTests(unittest.TestCase):
+    """O git tem de estar garantido antes de perguntar o modo."""
+
+    def test_main_chama_ensure_git_antes_do_modo(self):
+        fonte = (ROOT / "maktrak_setup.py").read_text(encoding="utf-8")
+        # Escopo: corpo de main() (evita casar com a definicao da funcao).
+        inicio = fonte.index("def main():")
+        corpo = fonte[inicio:]
+        pos_git = corpo.index("_ensure_git()")
+        pos_modo = corpo.index("mode = _ui_select_mode()")
+        self.assertLess(pos_git, pos_modo,
+                        "_ensure_git() deve vir antes de _ui_select_mode()")
+
+    def test_linux_instala_git_sem_checagem(self):
+        """Linux rode sempre (idempotente): sem `if` sobre o git."""
+        fonte = (ROOT / "maktrak_setup.py").read_text(encoding="utf-8")
+        inicio = fonte.index("def _ensure_git():")
+        fim = fonte.index("def _install_base_software():")
+        bloco = fonte[inicio:fim]
+        inicio_linux = bloco.index('if os_type.startswith("linux"):')
+        fim_linux = bloco.index('elif os_type == "windows":')
+        ramo_linux = bloco[inicio_linux:fim_linux]
+        self.assertIn('"--install", "-y", "git"'.replace("--install", "install"),
+                      ramo_linux)
+        self.assertNotIn("_git_validate()", ramo_linux)
+
+    def test_windows_mantem_checagem(self):
+        """Windows checa antes: winget instalado tentaria upgrade."""
+        fonte = (ROOT / "maktrak_setup.py").read_text(encoding="utf-8")
+        inicio = fonte.index('elif os_type == "windows":')
+        fim = fonte.index("else:", inicio)
+        self.assertIn("if _git_validate():", fonte[inicio:fim])
+
+    def test_base_software_nao_instala_git(self):
+        """O git saiu de _install_base_software (agora e responsabilidade unica)."""
+        fonte = (ROOT / "maktrak_setup.py").read_text(encoding="utf-8")
+        inicio = fonte.index("def _install_base_software():")
+        fim = fonte.index("def _ui_select_mode():")
+        self.assertNotIn('"-y", "git"', fonte[inicio:fim])
+
+
 class ProducaoNoOrquestradorTests(unittest.TestCase):
     """O modo prod nao pode clonar repositorio nem instalar software de dev."""
 

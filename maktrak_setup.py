@@ -1207,35 +1207,49 @@ def _install_chrome():
             pass
 
 
-def _install_base_software():
-    """Instala o software base — SEMPRE, em qualquer modo/componente.
+def _ensure_git():
+    """Garante o git antes de qualquer pergunta (dev e prod precisam dele).
 
-    Software essencial no inicio, antes do prompt de credenciais GitHub:
-      - git    — pre-requisito (credential helper, clone); aborta se falhar;
+    Linux: `apt-get install -y git` e idempotente, entao roda sempre (sem
+    checar antes) — cobre a maquina recem-instalada, onde o pacote falta.
+
+    Windows: mantem a checagem. `winget install` num pacote ja instalado nao
+    abre confirmacao, mas tenta atualizar e termina com codigo de erro; rodar
+    sempre custaria tempo e poderia trocar a versao do git sem necessidade.
+    """
+    os_type = platform.system().lower()
+    if os_type.startswith("linux"):
+        print("Garantindo git (apt)...")
+        # apt update antes do install: sem listas atualizadas o apt nao
+        # encontra o pacote em sistema recem-instalado.
+        subprocess.run(["sudo", "apt-get", "update"], text=True)
+        subprocess.run(["sudo", "apt-get", "install", "-y", "git"], text=True)
+    elif os_type == "windows":
+        if _git_validate():
+            return
+        print("Instalando git...")
+        subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
+                        "--source", "winget",
+                        "--accept-package-agreements", "--accept-source-agreements"],
+                       text=True)
+        _windows_refresh_path()
+    else:
+        return
+
+    if not _git_validate():
+        print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
+        sys.exit(1)
+
+
+def _install_base_software():
+    """Instala o restante do software base do modo dev.
+
+    O git ja foi garantido por `_ensure_git()`, antes da escolha de modo.
       - curl   — downloads do Flutter/Dart (sem fallback p/ wget);
       - Chrome — browser.
     O Windows Terminal fica no preparo do terminal (Windows), pois precisa
     existir antes da janela elevada.
     """
-    # git
-    if not _git_validate():
-        print("Instalando git...")
-        os_type = platform.system().lower()
-        if os_type.startswith("linux"):
-            # apt update antes do install: sem listas atualizadas o apt nao
-            # encontra o pacote em sistema recem-instalado.
-            subprocess.run(["sudo", "apt-get", "update"], text=True)
-            subprocess.run(["sudo", "apt", "install", "-y", "git"], text=True)
-        elif os_type == "windows":
-            subprocess.run(["winget", "install", "--id", "Git.Git", "-e",
-                            "--source", "winget",
-                            "--accept-package-agreements", "--accept-source-agreements"],
-                           text=True)
-            _windows_refresh_path()
-        if not _git_validate():
-            print("❌ Git e obrigatorio. Instale manualmente e tente novamente.")
-            sys.exit(1)
-
     # curl — o Flutter/Dart baixa o SDK com curl (sem fallback p/ wget)
     if not shutil.which("curl"):
         if platform.system().lower().startswith("linux"):
@@ -1780,6 +1794,9 @@ def main():
     # Mantem o ticket sudo vivo durante toda a execucao (evita expiracao)
     _sudo_keepalive()
 
+    # 1.1. git antes de qualquer pergunta: dev e prod dependem dele
+    _ensure_git()
+
     # 2. Interacao com usuario (todas as perguntas primeiro)
     mode = _ui_select_mode()
     catalogo = DEV_MODULES if mode == "dev" else PROD_MODULES
@@ -1804,9 +1821,9 @@ def main():
         print("Instalacao cancelada.")
         sys.exit(0)
 
-    # 3. Software base (git + Chrome) — sempre no modo dev, antes do prompt de
-    #    credenciais GitHub (obter o token) e antes do clone. Producao nao usa
-    #    nada disto: ja saiu acima para o server_setup.py.
+    # 3. Restante do software base (curl + Chrome) — no modo dev, antes do
+    #    prompt de credenciais GitHub e do clone. Producao nao usa nada disto:
+    #    ja saiu acima para o server_setup.py (com o git ja garantido).
     _install_base_software()
 
     # 4. Credenciais GitHub (todos os dados do usuario obtidos primeiro)
