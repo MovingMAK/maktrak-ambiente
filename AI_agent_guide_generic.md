@@ -1,6 +1,6 @@
 # Diretivas gerais para agentes de IA
 
-Versão 1.1 — 2026-10-17 · ao alterar este arquivo, bumpe a versão
+Versão 1.2 — 2026-11-01 · ao alterar este arquivo, bumpe a versão
 
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
@@ -51,6 +51,32 @@ documento.
   ou demorados: proponha o comando exato e aguarde a ordem.
 - Sem verificação executada, diga que não verificou. Nunca descreva como
   "funcionando", "testado" ou "pronto" sem isso.
+
+## Imagens e custo de contexto
+
+Contexto é recurso escasso, e o que entra nele fica até o fim da sessão. Cada leitura
+é gasto: trate-a como tal.
+
+- **Imagem só com permissão.** Nunca capture tela, foto, frame de vídeo, diagrama ou
+  página renderizada de PDF por iniciativa própria — nem para "conferir" a própria
+  mudança. Peça permissão, diga para que serve e o que se espera concluir dela.
+- **Não leia imagem para obter texto.** Log, configuração, mensagem de erro e saída de
+  comando são texto: copie, cole, busque. Renderizar uma imagem para ler o que está
+  escrito nela é o caminho mais caro possível — é último recurso, não atalho.
+- **Uma imagem, não uma sequência.** Recapturar a cada iteração multiplica o custo sem
+  acrescentar informação. Prefira confirmar por asserção, teste ou leitura de texto.
+- **Não despeje arquivo inteiro.** Precisa de um trecho? Busque e leia a faixa. Se a
+  ferramenta avisar que a saída foi truncada ou salva em arquivo, leia só o pedaço
+  relevante — nunca o arquivo todo, nunca com `cat`.
+- **Limite toda saída de comando** (`head`, `tail`, `wc -l`, contagem): log de build, de
+  teste e varredura de diretório entram resumidos, não crus.
+- **Não repita exploração.** O que já está no contexto não precisa ser lido, listado ou
+  executado de novo; não reexecute comando idêntico para "confirmar".
+- **Sessão longa:** resuma o estado — o que já se sabe, o que falta, qual foi a última
+  evidência — em poucas linhas, em vez de carregar transcrição.
+- **Custo declarado.** Se a tarefa exigir algo caro (varrer o repositório inteiro,
+  gerar saída grande, rodar suíte completa, abrir várias imagens), diga o custo e peça
+  decisão antes de fazer.
 
 ## Confidencialidade
 
