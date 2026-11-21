@@ -1,6 +1,6 @@
 # Diretivas gerais para agentes de IA
 
-Versão 1.2 — 2026-11-01 · ao alterar este arquivo, bumpe a versão
+Versão 1.3 — 2026-11-21 · ao alterar este arquivo, bumpe a versão
 
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
@@ -17,6 +17,10 @@ documento.
 - Código, identificadores, arquivos e endpoints em inglês, conforme as convenções de
   nomenclatura do projeto:
   <https://raw.githubusercontent.com/MovingMAK/maktrak-ambiente/main/NAMING_CONVENTIONS.md>
+
+## Documentação
+
+- **`.md` sem quebra de linha em parágrafo.** Um parágrafo é **uma linha só**, por mais longa que fique; quem quebra é o renderizador, não o autor. Quebra dura no meio de uma frase atrapalha o `diff`, a revisão e a busca por trecho. Continuam com uma linha por item: título, item de lista, linha de tabela e linha de bloco de código.
 
 ## Comunicação e postura
 
