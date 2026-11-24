@@ -1,6 +1,6 @@
 # Diretivas gerais para agentes de IA
 
-Versão 1.3 — 2026-11-21 · ao alterar este arquivo, bumpe a versão
+Versão 1.4 — 2026-11-24 · ao alterar este arquivo, bumpe a versão
 
 Regras de comportamento que valem para qualquer repositório que referencie este
 documento. Ele não descreve o projeto: cada repositório mantém seu próprio
@@ -81,6 +81,13 @@ Contexto é recurso escasso, e o que entra nele fica até o fim da sessão. Cada
 - **Custo declarado.** Se a tarefa exigir algo caro (varrer o repositório inteiro,
   gerar saída grande, rodar suíte completa, abrir várias imagens), diga o custo e peça
   decisão antes de fazer.
+
+## Processos demorados
+
+- **Não releia a saída de um processo em andamento.** Cada leitura devolve o log acumulado e queima contexto sem informação nova: inicie o processo, deixe a saída em arquivo e espere a notificação de término ou o humano avisar.
+- **Esperar não custa tokens; reler custa.** Ferramentas que notificam no término, observam o sistema de arquivos ou devolvem só o delta não gastam contexto — use-as. O custo está na releitura periódica da saída acumulada, não em "observar" o processo.
+- **Ao ler um log, leia o fim e filtre.** O volume cresce a cada ciclo e a informação útil costuma estar nas últimas linhas: use `tail` e exclua o ruído conhecido, em vez do arquivo inteiro.
+- **Desperdício de contexto é falha de execução, não estilo.** Se o caminho previsto gasta tokens sem produzir informação, diga isso e proponha o caminho curto.
 
 ## Confidencialidade
 
