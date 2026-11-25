@@ -1,0 +1,4 @@
+# Exports do Trello e paineis gerados: dados internos, nao versionar.
+*.json
+*.pdf
+*.html
