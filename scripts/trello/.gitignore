@@ -2,3 +2,9 @@
 *.json
 *.pdf
 *.html
+
+# Build do executavel (PyInstaller): gerado, nao versionar.
+*.exe
+*.spec
+build/
+dist/
