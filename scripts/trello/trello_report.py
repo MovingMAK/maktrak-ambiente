@@ -395,22 +395,27 @@ def main():
         return 2
 
     for src in args.json:
-        data = load_board(src)
-        title = args.title or f"Painel · {data['board']}"
-        out_dir = Path(args.out) if args.out else Path(src).resolve().parent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w.-]+", "_", data["board"]).strip("_") or "quadro"
-        base = out_dir / f"Painel_{safe}_{data['ref']:%Y-%m-%d}"
-        html_path = base.with_suffix(".html")
-        html_path.write_text(build_html(data, title, stage_names, args.stale_days), encoding="utf-8")
-        if args.html_only:
-            print(f"{src} -> {html_path}")
-            continue
-        pdf_path = base.with_suffix(".pdf")
-        print_pdf(browser, html_path, pdf_path)
-        html_path.unlink()
-        print(f"{src} -> {pdf_path}")
+        result = generate(src, browser, args.out, args.title, stage_names, args.stale_days)
+        print(f"{src} -> {result}")
     return 0
+
+
+def generate(src, browser=None, out=None, title=None, stage_names=None, stale_days=STALE_DAYS):
+    """Gera o painel de um .json e devolve o caminho do PDF (ou do .html, sem browser)."""
+    data = load_board(src)
+    title = title or f"Painel · {data['board']}"
+    out_dir = Path(out) if out else Path(src).resolve().parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^\w.-]+", "_", data["board"]).strip("_") or "quadro"
+    base = out_dir / f"Painel_{safe}_{data['ref']:%Y-%m-%d}"
+    html_path = base.with_suffix(".html")
+    html_path.write_text(build_html(data, title, stage_names or {}, stale_days), encoding="utf-8")
+    if not browser:
+        return html_path
+    pdf_path = base.with_suffix(".pdf")
+    print_pdf(browser, html_path, pdf_path)
+    html_path.unlink()
+    return pdf_path
 
 
 if __name__ == "__main__":

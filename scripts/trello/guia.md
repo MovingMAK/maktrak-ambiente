@@ -10,13 +10,21 @@ O `trello_report.py` lê o `.json` exportado de um quadro do Trello e gera um PD
 ## Rotina de atualização
 
 1. No Trello, abra o quadro → Menu → Imprimir, exportar e compartilhar → Exportar como JSON. Salve o arquivo.
-2. Rode o script apontando para o arquivo:
+2. Gere o PDF pela janela ou pela linha de comando (abaixo).
+
+### Pela janela
+
+Abra o `trello_report_gui.pyw` (duplo clique, ou `pythonw scripts/trello/trello_report_gui.pyw`). No campo, cole o arquivo (copie o `.json` no Explorer com Ctrl+C e cole com Ctrl+V; também aceita o caminho como texto) ou use **Procurar…**. Clique em **Gerar PDF**: o PDF é gerado ao lado do `.json` e aberto em seguida. A janela usa as regras padrão; as opções abaixo são só da linha de comando.
+
+Se o duplo clique não abrir o Python (extensão `.pyw` sem associação), crie um atalho com destino `<pasta do Python>\pythonw.exe "<repo>\scripts\trello\trello_report_gui.pyw"`.
+
+### Pela linha de comando
 
 ```bash
 python scripts/trello/trello_report.py ~/Downloads/quadro.json
 ```
 
-3. O PDF sai na mesma pasta do `.json`, com o nome `Painel_<quadro>_<AAAA-MM-DD>.pdf` (data da última ação registrada no export).
+O PDF sai na mesma pasta do `.json`, com o nome `Painel_<quadro>_<AAAA-MM-DD>.pdf` (data da última ação registrada no export).
 
 Opções:
 
